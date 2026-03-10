@@ -362,8 +362,32 @@ export async function registerRoutes(
       };
 
       const mealPromises = [];
+      const planLunches = [];
+      const planDinners = [];
+
+      // 1. Generate Dinners first so we can plan leftovers
+      for (let i = 0; i < input.dinnersCount; i++) {
+        const recipe = pickRecipe('dinner', i);
+        planDinners.push(recipe);
+      }
+
+      // 2. Generate Lunches with explicit leftover rule
       for (let i = 0; i < input.lunchesCount; i++) {
+        // If there was a dinner the night before (i-1), 70% chance this lunch is its leftovers
+        if (i > 0 && i <= planDinners.length && Math.random() < 0.7) {
+          const leftoverRecipe = allRecipes.find(r => r.title === "Leftovers");
+          if (leftoverRecipe) {
+            planLunches.push(leftoverRecipe);
+            continue;
+          }
+        }
+        
         const recipe = pickRecipe('lunch', i);
+        planLunches.push(recipe);
+      }
+
+      // 3. Save all meals
+      for (const recipe of planLunches) {
         mealPromises.push(storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
           recipeId: recipe.id,
@@ -371,8 +395,7 @@ export async function registerRoutes(
         }));
       }
 
-      for (let i = 0; i < input.dinnersCount; i++) {
-        const recipe = pickRecipe('dinner', i);
+      for (const recipe of planDinners) {
         mealPromises.push(storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
           recipeId: recipe.id,
