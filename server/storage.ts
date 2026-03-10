@@ -38,6 +38,7 @@ export interface IStorage {
   createWeeklyPlanMeal(meal: InsertWeeklyPlanMeal): Promise<WeeklyPlanMeal>;
   updateWeeklyPlanMeal(id: number, meal: Partial<InsertWeeklyPlanMeal>): Promise<WeeklyPlanMeal | undefined>;
   getWeeklyPlanMeals(planId: number): Promise<WeeklyPlanMeal[]>;
+  getWeeklyPlanByMealId(mealId: number): Promise<(WeeklyPlan & { meals: (WeeklyPlanMeal & { recipe: Recipe })[] }) | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -126,6 +127,12 @@ export class DatabaseStorage implements IStorage {
 
   async getWeeklyPlanMeals(planId: number): Promise<WeeklyPlanMeal[]> {
     return await db.select().from(weeklyPlanMeals).where(eq(weeklyPlanMeals.weeklyPlanId, planId));
+  }
+
+  async getWeeklyPlanByMealId(mealId: number): Promise<(WeeklyPlan & { meals: (WeeklyPlanMeal & { recipe: Recipe })[] }) | undefined> {
+    const [meal] = await db.select().from(weeklyPlanMeals).where(eq(weeklyPlanMeals.id, mealId));
+    if (!meal) return undefined;
+    return this.getWeeklyPlan(meal.weeklyPlanId);
   }
 }
 

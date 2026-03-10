@@ -392,26 +392,39 @@ export async function registerRoutes(
     try {
       const mealId = Number(req.params.id);
       
-      // Need to find the meal to know its type
-      // Using direct db query here for simplicity since we don't have getWeeklyPlanMeal
-      const [meal] = await db.select().from(weeklyPlanMeals).where(eq(weeklyPlanMeals.id, mealId));
+      const planWithMeals = await storage.getWeeklyPlanByMealId(mealId);
+      if (!planWithMeals) return res.status(404).json({ message: "Meal or Plan not found" });
+
+      const meal = planWithMeals.meals.find(m => m.id === mealId);
       if (!meal) return res.status(404).json({ message: "Meal not found" });
 
       const allRecipes = await storage.getRecipes(true);
-      const suitableRecipes = allRecipes.filter(r => r.mealType === meal.mealType || r.mealType === 'both');
+      const usedRecipeIds = planWithMeals.meals.map(m => m.recipeId);
       
-      if (suitableRecipes.length > 0) {
-        // Pick a different recipe
-        let newRecipe = suitableRecipes[Math.floor(Math.random() * suitableRecipes.length)];
-        
+      const suitableRecipes = allRecipes.filter(r => 
+        (r.mealType === meal.mealType || r.mealType === 'both') && 
+        !usedRecipeIds.includes(r.id) &&
+        r.title !== "Leftovers"
+      );
+      
+      const fallbackRecipes = allRecipes.filter(r => 
+        (r.mealType === meal.mealType || r.mealType === 'both') &&
+        r.title !== "Leftovers"
+      );
+
+      const candidates = suitableRecipes.length > 0 ? suitableRecipes : fallbackRecipes;
+      
+      if (candidates.length > 0) {
+        const newRecipe = candidates[Math.floor(Math.random() * candidates.length)];
         const updated = await storage.updateWeeklyPlanMeal(mealId, {
           recipeId: newRecipe.id
         });
         return res.json(updated);
       }
       
-      res.json(meal); // Return original if no alternatives
+      res.json(meal);
     } catch (err) {
+      console.error("Swap error:", err);
       res.status(500).json({ message: "Failed to regenerate meal" });
     }
   });
