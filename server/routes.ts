@@ -5,6 +5,9 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import * as cheerio from "cheerio";
 import { openai } from "./replit_integrations/audio/client"; // Reuse openai instance from audio integration
+import { db } from "./db";
+import { weeklyPlanMeals } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 export async function registerRoutes(
   httpServer: Server,
