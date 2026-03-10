@@ -184,56 +184,79 @@ export async function registerRoutes(
     try {
       const approvedRecipes = await storage.getRecipes(true);
       
-      // Extract preferences
+      // Extract preferences from existing recipes
       const cuisines = [...new Set(approvedRecipes.map(r => r.cuisine).filter(Boolean))];
       const proteins = [...new Set(approvedRecipes.map(r => r.proteinType).filter(Boolean))];
       const titles = approvedRecipes.map(r => r.title);
+
+      // Infer style from recipe titles
+      const styleClues = titles.slice(0, 15).join(', ');
       
-      const prompt = `Suggest a simple, tasty recipe for a weekly meal planner. 
-      The user likes these cuisines: ${cuisines.join(', ') || 'Various'}.
-      They often use these proteins: ${proteins.join(', ') || 'Any'}.
-      They already have these recipes: ${titles.slice(0, 10).join(', ')}.
-      Suggest something NEW that fits these preferences but is different from what they have.
-      
-      Return ONLY a JSON object with:
-      title, description, mealType (lunch, dinner, or both), cuisine, proteinType, prepTimeMinutes, cookTimeMinutes, 
-      ingredients (array of strings), instructions (string).`;
+      const prompt = `You are a recipe discovery engine. Based on a user's existing recipe collection, suggest 3 NEW popular, highly-rated recipes they would love.
+
+User's existing recipes: ${styleClues || 'None yet - suggest popular weeknight dinners'}
+Cuisines they enjoy: ${cuisines.join(', ') || 'variety'}
+Proteins they use: ${proteins.join(', ') || 'chicken, beef, pork, fish'}
+
+Rules:
+- Suggest POPULAR recipes that are widely loved (think recipes that would have 4.3+ star ratings on major cooking sites)
+- Each suggestion must be DIFFERENT from what the user already has
+- Include a mix of weeknight dinners and lunch/versatile options
+- Keep ingredients practical and accessible
+- Each recipe should be flavorful, simple enough for a home cook, and meal-prep friendly
+
+Return ONLY a JSON object with a "suggestions" array of 3 recipes. Each recipe should have:
+title, description, mealType ("lunch", "dinner", or "both"), cuisine, proteinType, prepTimeMinutes, cookTimeMinutes, 
+ingredients (array of strings like "2 cloves garlic, minced"), instructions (step-by-step string), 
+discoveryReason (why this fits the user's taste, 1 sentence)`;
       
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
+        messages: [
+          { role: "system", content: "You are a helpful recipe recommendation assistant. Always return valid JSON." },
+          { role: "user", content: prompt }
+        ],
         response_format: { type: "json_object" }
       });
       
       const data = JSON.parse(completion.choices[0].message.content || "{}");
+      const suggestions = data.suggestions || [data];
       
-      const newRecipe = await storage.createRecipe({
-        title: data.title || "Suggested Recipe",
-        description: data.description || "",
-        sourceType: "web",
-        mealType: data.mealType || "dinner",
-        cuisine: data.cuisine || cuisines[0] || "International",
-        proteinType: data.proteinType || proteins[0] || "Various",
-        prepTimeMinutes: data.prepTimeMinutes || 15,
-        cookTimeMinutes: data.cookTimeMinutes || 30,
-        ingredients: (data.ingredients || []).map((i: string) => ({
-          ingredient_name_raw: i,
-          ingredient_name_normalized: i,
-          quantity: null,
-          unit: null,
-          optional_boolean: false,
-          preparation_note: null
-        })),
-        instructions: data.instructions || "",
-        isApproved: false,
-        discoveryScore: Math.floor(Math.random() * 20) + 80,
-        discoveryReason: `Fits your preference for ${data.cuisine || 'variety'}`
-      });
+      // Delete any old unreviewed suggestions to keep things fresh
+      const oldUnreviewed = await storage.getRecipes(false);
+      for (const old of oldUnreviewed) {
+        await storage.deleteRecipe(old.id);
+      }
+
+      // Save all new suggestions
+      const savedSuggestions = await Promise.all(suggestions.map(async (s: any) => {
+        return storage.createRecipe({
+          title: s.title || "Suggested Recipe",
+          description: s.description || "",
+          sourceType: "web",
+          mealType: s.mealType || "dinner",
+          cuisine: s.cuisine || cuisines[0] || "International",
+          proteinType: s.proteinType || proteins[0] || "Various",
+          prepTimeMinutes: s.prepTimeMinutes || 15,
+          cookTimeMinutes: s.cookTimeMinutes || 30,
+          ingredients: (s.ingredients || []).map((i: string) => ({
+            ingredient_name_raw: i,
+            ingredient_name_normalized: i,
+            quantity: null,
+            unit: null,
+            optional_boolean: false,
+            preparation_note: null
+          })),
+          instructions: s.instructions || "",
+          isApproved: false,
+          discoveryScore: Math.floor(Math.random() * 15) + 85,
+          discoveryReason: s.discoveryReason || `Matches your taste for ${s.cuisine || 'flavorful cooking'}`
+        });
+      }));
       
-      const unapproved = await storage.getRecipes(false);
-      res.status(200).json(unapproved);
+      res.status(200).json(savedSuggestions);
     } catch (err) {
-      console.error(err);
+      console.error("Discover error:", err);
       res.status(500).json({ message: "Failed to discover recipes" });
     }
   });

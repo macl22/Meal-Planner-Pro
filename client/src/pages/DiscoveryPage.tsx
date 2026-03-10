@@ -1,11 +1,11 @@
 import { useRecipes, useUpdateRecipe, useDeleteRecipe, useDiscoverRecipes } from "@/hooks/use-recipes";
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { Check, X, Sparkles, Loader2 } from "lucide-react";
+import { Check, X, Sparkles, Loader2, Clock, ChefHat, Star } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function DiscoveryPage() {
-  const { data: recipes, isLoading } = useRecipes({ isApproved: false });
+  const { data: suggestions, isLoading } = useRecipes({ isApproved: false });
   const updateMutation = useUpdateRecipe();
   const deleteMutation = useDeleteRecipe();
   const discoverMutation = useDiscoverRecipes();
@@ -18,97 +18,156 @@ export default function DiscoveryPage() {
     deleteMutation.mutate(id);
   };
 
-  const handleDiscoverMore = () => {
-    discoverMutation.mutate();
-  };
-
-  if (isLoading) return <Layout><LoadingState message="Finding new recipes..." /></Layout>;
+  if (isLoading) return <Layout><LoadingState message="Loading suggestions..." /></Layout>;
 
   return (
     <Layout>
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <header className="flex justify-between items-end">
+        <header className="flex justify-between items-start">
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight font-display mb-2 flex items-center gap-3">
               Discover <Sparkles className="w-8 h-8 text-accent" />
             </h1>
-            <p className="text-muted-foreground text-lg">AI suggestions based on your pantry</p>
+            <p className="text-muted-foreground text-lg">
+              {suggestions && suggestions.length > 0
+                ? `${suggestions.length} recipes picked for your taste`
+                : "AI picks recipes matched to your style"}
+            </p>
           </div>
-          <button 
-            onClick={handleDiscoverMore}
+          <button
+            onClick={() => discoverMutation.mutate()}
             disabled={discoverMutation.isPending}
-            className="bg-accent/10 text-accent hover:bg-accent/20 px-5 py-3 rounded-2xl font-bold flex items-center gap-2 transition-colors disabled:opacity-50"
+            className="active-elevate-2 bg-accent text-accent-foreground px-5 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-accent/20 hover:shadow-xl transition-all disabled:opacity-50"
           >
-            {discoverMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Find More'}
+            {discoverMutation.isPending ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" /> Finding...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-5 h-5" /> {suggestions?.length ? 'Refresh' : 'Find Recipes'}
+              </>
+            )}
           </button>
         </header>
 
-        {!recipes || recipes.length === 0 ? (
+        {discoverMutation.isPending && (
+          <div className="flex flex-col items-center justify-center py-20 bg-card rounded-3xl border border-dashed border-accent/30 space-y-4">
+            <Loader2 className="w-10 h-10 text-accent animate-spin" />
+            <p className="text-lg font-semibold text-muted-foreground">Analyzing your recipe collection...</p>
+            <p className="text-sm text-muted-foreground">Finding popular recipes that match your taste</p>
+          </div>
+        )}
+
+        {!discoverMutation.isPending && (!suggestions || suggestions.length === 0) && (
           <div className="text-center py-20 bg-card rounded-3xl border border-dashed border-border shadow-sm">
-            <Sparkles className="w-12 h-12 mx-auto mb-4 text-accent/50" />
-            <h3 className="text-xl font-bold font-display mb-2">No new suggestions</h3>
-            <p className="text-muted-foreground mb-6">You've reviewed all suggested recipes.</p>
-            <button 
-              onClick={handleDiscoverMore}
-              className="bg-accent text-accent-foreground px-6 py-3 rounded-xl font-bold shadow-lg shadow-accent/25 hover:-translate-y-0.5 transition-all"
+            <div className="w-20 h-20 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Sparkles className="w-10 h-10 text-accent" />
+            </div>
+            <h3 className="text-xl font-bold font-display mb-2">No suggestions yet</h3>
+            <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
+              Tap "Find Recipes" and AI will suggest popular, highly-rated recipes tailored to your cooking style.
+            </p>
+            <button
+              onClick={() => discoverMutation.mutate()}
+              disabled={discoverMutation.isPending}
+              className="bg-accent text-accent-foreground px-8 py-4 rounded-2xl font-bold shadow-lg shadow-accent/25 hover:-translate-y-0.5 transition-all disabled:opacity-50 flex items-center gap-2 mx-auto"
             >
-              Generate Suggestions
+              <Sparkles className="w-5 h-5" /> Generate Suggestions
             </button>
           </div>
-        ) : (
-          <div className="grid gap-8">
+        )}
+
+        {!discoverMutation.isPending && suggestions && suggestions.length > 0 && (
+          <div className="grid gap-6">
             <AnimatePresence>
-              {recipes.map((recipe: any) => (
+              {suggestions.map((recipe: any, i: number) => (
                 <motion.div
                   key={recipe.id}
                   layout
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                  className="bg-card rounded-3xl border border-border shadow-ios overflow-hidden"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                  transition={{ delay: i * 0.1 }}
+                  className="bg-card rounded-3xl border border-border shadow-sm overflow-hidden"
                 >
                   <div className="p-6 sm:p-8">
-                    <div className="flex items-start justify-between gap-6 mb-6">
-                      <div>
-                        <h2 className="text-2xl font-bold font-display leading-tight mb-2">{recipe.title}</h2>
-                        <div className="inline-block bg-accent/10 text-accent font-medium text-sm px-3 py-1 rounded-full mb-4">
-                          Score: {recipe.discoveryScore || 85}% Match
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="bg-accent/10 text-accent text-xs font-bold px-3 py-1 rounded-full capitalize">
+                            {recipe.mealType}
+                          </span>
+                          {recipe.cuisine && (
+                            <span className="bg-muted text-muted-foreground text-xs font-medium px-3 py-1 rounded-full">
+                              {recipe.cuisine}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1 text-xs font-bold text-yellow-500 bg-yellow-50 dark:bg-yellow-500/10 px-2 py-1 rounded-full">
+                            <Star className="w-3 h-3 fill-yellow-500" /> Highly Rated
+                          </span>
                         </div>
-                        <p className="text-muted-foreground italic text-lg border-l-4 border-accent/30 pl-4 py-1">
-                          "{recipe.discoveryReason || 'Great match for ingredients you already have.'}"
-                        </p>
+                        <h2 className="text-2xl font-bold font-display leading-tight">{recipe.title}</h2>
                       </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-2 gap-6 mt-6 pt-6 border-t border-border/50">
-                      <div>
-                        <h4 className="font-bold mb-3 text-sm uppercase tracking-wider text-muted-foreground">Ingredients</h4>
-                        <ul className="space-y-2">
-                          {recipe.ingredients?.slice(0, 5).map((ing: any, i: number) => (
-                            <li key={i} className="flex items-start gap-2 text-sm">
-                              <span className="w-1.5 h-1.5 rounded-full bg-primary/50 mt-1.5 shrink-0" />
-                              <span className="capitalize">{ing.ingredient_name_raw || ing.raw}</span>
-                            </li>
+                    {recipe.discoveryReason && (
+                      <div className="bg-accent/5 border border-accent/15 rounded-2xl p-4 mb-5">
+                        <p className="text-sm font-medium text-accent/80 flex items-start gap-2">
+                          <Sparkles className="w-4 h-4 shrink-0 mt-0.5" />
+                          {recipe.discoveryReason}
+                        </p>
+                      </div>
+                    )}
+
+                    <p className="text-muted-foreground mb-5 leading-relaxed">{recipe.description}</p>
+
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground mb-6">
+                      {recipe.prepTimeMinutes && (
+                        <span className="flex items-center gap-1.5">
+                          <Clock className="w-4 h-4" /> {(recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0)} min
+                        </span>
+                      )}
+                      {recipe.cuisine && (
+                        <span className="flex items-center gap-1.5">
+                          <ChefHat className="w-4 h-4" /> {recipe.cuisine}
+                        </span>
+                      )}
+                    </div>
+
+                    {recipe.ingredients && recipe.ingredients.length > 0 && (
+                      <div className="mb-6">
+                        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">Key Ingredients</p>
+                        <div className="flex flex-wrap gap-2">
+                          {recipe.ingredients.slice(0, 6).map((ing: any, j: number) => (
+                            <span key={j} className="bg-muted text-foreground text-sm px-3 py-1 rounded-full">
+                              {ing.ingredient_name_raw || ing}
+                            </span>
                           ))}
-                          {recipe.ingredients?.length > 5 && (
-                            <li className="text-sm text-muted-foreground italic pl-3">+ {recipe.ingredients.length - 5} more</li>
+                          {recipe.ingredients.length > 6 && (
+                            <span className="bg-muted text-muted-foreground text-sm px-3 py-1 rounded-full">
+                              +{recipe.ingredients.length - 6} more
+                            </span>
                           )}
-                        </ul>
+                        </div>
                       </div>
-                      <div className="flex flex-col justify-end gap-3 sm:items-end">
-                        <button 
-                          onClick={() => handleApprove(recipe.id)}
-                          className="w-full sm:w-48 active-elevate-2 bg-primary text-primary-foreground py-4 rounded-2xl font-bold shadow-lg shadow-primary/25 hover:shadow-xl flex items-center justify-center gap-2 transition-all"
-                        >
-                          <Check className="w-5 h-5" /> Add to Library
-                        </button>
-                        <button 
-                          onClick={() => handleReject(recipe.id)}
-                          className="w-full sm:w-48 py-4 rounded-2xl font-bold text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <X className="w-5 h-5" /> Dismiss
-                        </button>
-                      </div>
+                    )}
+
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => handleApprove(recipe.id)}
+                        disabled={updateMutation.isPending}
+                        className="active-elevate-2 flex-1 bg-primary text-primary-foreground py-4 rounded-2xl font-bold shadow-lg shadow-primary/25 hover:shadow-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                      >
+                        <Check className="w-5 h-5" /> Add to My Recipes
+                      </button>
+                      <button
+                        onClick={() => handleReject(recipe.id)}
+                        disabled={deleteMutation.isPending}
+                        className="py-4 px-6 rounded-2xl font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <X className="w-5 h-5" /> Skip
+                      </button>
                     </div>
                   </div>
                 </motion.div>

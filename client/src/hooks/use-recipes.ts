@@ -125,6 +125,7 @@ export function useImportRecipe() {
 }
 
 export function useDiscoverRecipes() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
       const res = await fetch(api.recipes.discover.path, {
@@ -133,7 +134,10 @@ export function useDiscoverRecipes() {
       });
       if (!res.ok) throw new Error("Failed to discover recipes");
       const data = await res.json();
-      return safeParse(api.recipes.discover.responses[200], data);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.recipes.list.path] });
     },
   });
 }
