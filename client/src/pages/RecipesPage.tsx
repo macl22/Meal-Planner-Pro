@@ -2,13 +2,14 @@ import { useState } from "react";
 import { useRecipes, useImportRecipe, useDeleteRecipe } from "@/hooks/use-recipes";
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { Plus, Search, Link as LinkIcon, Trash2, Clock, Users } from "lucide-react";
-import { motion } from "framer-motion";
+import { Plus, Search, Link as LinkIcon, Trash2, Clock, Users, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function RecipesPage() {
   const [search, setSearch] = useState("");
   const { data: recipes, isLoading } = useRecipes({ isApproved: true, search: search.length > 2 ? search : undefined });
   const [showImport, setShowImport] = useState(false);
+  const [selectedRecipe, setSelectedRecipe] = useState<any>(null);
 
   return (
     <Layout>
@@ -43,6 +44,15 @@ export default function RecipesPage() {
         </div>
 
         {showImport && <ImportRecipeModal onClose={() => setShowImport(false)} />}
+        
+        <AnimatePresence>
+          {selectedRecipe && (
+            <RecipeDetailModal 
+              recipe={selectedRecipe} 
+              onClose={() => setSelectedRecipe(null)} 
+            />
+          )}
+        </AnimatePresence>
 
         {isLoading ? (
           <LoadingState />
@@ -54,7 +64,12 @@ export default function RecipesPage() {
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {recipes.map((recipe: any, i: number) => (
-              <RecipeCard key={recipe.id} recipe={recipe} index={i} />
+              <RecipeCard 
+                key={recipe.id} 
+                recipe={recipe} 
+                index={i} 
+                onClick={() => setSelectedRecipe(recipe)}
+              />
             ))}
           </div>
         )}
@@ -65,7 +80,7 @@ export default function RecipesPage() {
 
 import { BookOpen } from "lucide-react"; // Import missing icon
 
-function RecipeCard({ recipe, index }: { recipe: any, index: number }) {
+function RecipeCard({ recipe, index, onClick }: { recipe: any, index: number, onClick: () => void }) {
   const deleteMutation = useDeleteRecipe();
 
   return (
@@ -73,7 +88,8 @@ function RecipeCard({ recipe, index }: { recipe: any, index: number }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
-      className="bg-card rounded-3xl overflow-hidden border border-border shadow-sm hover:shadow-ios transition-all group flex flex-col"
+      onClick={onClick}
+      className="bg-card rounded-3xl overflow-hidden border border-border shadow-sm hover:shadow-ios transition-all group flex flex-col cursor-pointer"
     >
       <div className="relative h-48 bg-muted overflow-hidden">
         {recipe.imageUrl ? (
@@ -108,6 +124,76 @@ function RecipeCard({ recipe, index }: { recipe: any, index: number }) {
         </div>
       </div>
     </motion.div>
+  );
+}
+
+function RecipeDetailModal({ recipe, onClose }: { recipe: any, onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 20 }}
+        className="bg-card w-full max-w-2xl max-h-[90vh] rounded-3xl shadow-ios-lg border border-border flex flex-col overflow-hidden"
+      >
+        <div className="relative h-64 shrink-0">
+          {recipe.imageUrl ? (
+            <img src={recipe.imageUrl} alt={recipe.title} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full bg-muted flex items-center justify-center text-muted-foreground/20">
+              <Utensils className="w-24 h-24" />
+            </div>
+          )}
+          <button 
+            onClick={onClose}
+            className="absolute top-4 right-4 bg-background/80 backdrop-blur p-2 rounded-full shadow-lg"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <div className="p-8 overflow-y-auto">
+          <div className="flex justify-between items-start gap-4 mb-6">
+            <div>
+              <h2 className="text-3xl font-extrabold font-display leading-tight">{recipe.title}</h2>
+              <div className="flex gap-4 mt-2 text-muted-foreground font-medium">
+                <span className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> {recipe.totalTimeMinutes || '?'}m</span>
+                <span className="flex items-center gap-1.5"><Users className="w-4 h-4" /> {recipe.defaultServings} servings</span>
+                <span className="capitalize">{recipe.cuisine} {recipe.proteinType}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-8">
+            <section>
+              <h3 className="text-xl font-bold font-display mb-4">Ingredients</h3>
+              <ul className="space-y-3">
+                {recipe.ingredients?.map((ing: any, i: number) => (
+                  <li key={i} className="flex gap-3 bg-muted/30 p-3 rounded-xl border border-border/50">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary mt-2 shrink-0" />
+                    <span className="text-lg">{ing.ingredient_name_raw}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <section>
+              <h3 className="text-xl font-bold font-display mb-4">Instructions</h3>
+              <div className="text-lg leading-relaxed whitespace-pre-wrap text-foreground/90">
+                {recipe.instructions}
+              </div>
+            </section>
+
+            {recipe.notes && (
+              <section className="bg-primary/5 p-6 rounded-3xl border border-primary/10">
+                <h3 className="text-lg font-bold font-display mb-2 text-primary">Notes</h3>
+                <p className="text-muted-foreground italic">{recipe.notes}</p>
+              </section>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </div>
   );
 }
 

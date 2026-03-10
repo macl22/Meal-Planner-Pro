@@ -148,17 +148,21 @@ export async function registerRoutes(
   // Discover recipes
   app.post(api.recipes.discover.path, async (req, res) => {
     try {
-      // Simulate discovering recipes via LLM (simplified for MVP)
       const approvedRecipes = await storage.getRecipes(true);
-      const cuisines = approvedRecipes.map(r => r.cuisine).filter(Boolean);
       
-      // We would normally call OpenAI here to suggest recipes based on cuisines
-      // For MVP, we'll create a mock suggestion if we have some data
-      const suggestedCuisine = cuisines.length > 0 ? cuisines[Math.floor(Math.random() * cuisines.length)] : "Italian";
+      // Extract preferences
+      const cuisines = [...new Set(approvedRecipes.map(r => r.cuisine).filter(Boolean))];
+      const proteins = [...new Set(approvedRecipes.map(r => r.proteinType).filter(Boolean))];
+      const titles = approvedRecipes.map(r => r.title);
       
-      const prompt = `Suggest a simple, tasty ${suggestedCuisine} recipe for a weekly meal planner. 
+      const prompt = `Suggest a simple, tasty recipe for a weekly meal planner. 
+      The user likes these cuisines: ${cuisines.join(', ') || 'Various'}.
+      They often use these proteins: ${proteins.join(', ') || 'Any'}.
+      They already have these recipes: ${titles.slice(0, 10).join(', ')}.
+      Suggest something NEW that fits these preferences but is different from what they have.
+      
       Return ONLY a JSON object with:
-      title, description, mealType (lunch, dinner, or both), prepTimeMinutes, cookTimeMinutes, 
+      title, description, mealType (lunch, dinner, or both), cuisine, proteinType, prepTimeMinutes, cookTimeMinutes, 
       ingredients (array of strings), instructions (string).`;
       
       const completion = await openai.chat.completions.create({
@@ -174,7 +178,8 @@ export async function registerRoutes(
         description: data.description || "",
         sourceType: "web",
         mealType: data.mealType || "dinner",
-        cuisine: suggestedCuisine,
+        cuisine: data.cuisine || cuisines[0] || "International",
+        proteinType: data.proteinType || proteins[0] || "Various",
         prepTimeMinutes: data.prepTimeMinutes || 15,
         cookTimeMinutes: data.cookTimeMinutes || 30,
         ingredients: (data.ingredients || []).map((i: string) => ({
@@ -188,7 +193,7 @@ export async function registerRoutes(
         instructions: data.instructions || "",
         isApproved: false,
         discoveryScore: Math.floor(Math.random() * 20) + 80,
-        discoveryReason: `Based on your love for ${suggestedCuisine} food`
+        discoveryReason: `Fits your preference for ${data.cuisine || 'variety'}`
       });
       
       const unapproved = await storage.getRecipes(false);
@@ -446,52 +451,26 @@ export async function registerRoutes(
 async function seedDatabase() {
   const existingRecipes = await storage.getRecipes();
   if (existingRecipes.length === 0) {
-    await storage.createRecipe({
-      title: "Garlic Butter Chicken Bites",
-      description: "Quick 15-minute chicken bites packed with flavor.",
-      sourceType: "manual",
-      mealType: "dinner",
-      cuisine: "American",
-      prepTimeMinutes: 5,
-      cookTimeMinutes: 10,
-      defaultServings: 2,
-      ingredients: [
-        { ingredient_name_raw: "1 lb chicken breast", ingredient_name_normalized: "chicken breast", quantity: 1, unit: "lb", optional_boolean: false, preparation_note: "cubed" },
-        { ingredient_name_raw: "3 tbsp butter", ingredient_name_normalized: "butter", quantity: 3, unit: "tbsp", optional_boolean: false, preparation_note: null },
-        { ingredient_name_raw: "4 cloves garlic", ingredient_name_normalized: "garlic", quantity: 4, unit: "cloves", optional_boolean: false, preparation_note: "minced" }
-      ],
-      instructions: "1. Season chicken.\n2. Cook in skillet until golden.\n3. Add butter and garlic, toss to coat.",
-      isApproved: true
-    });
+    // ... (existing recipes)
+  }
 
-    await storage.createRecipe({
-      title: "Avocado Toast with Egg",
-      description: "Simple, healthy lunch option.",
-      sourceType: "manual",
-      mealType: "lunch",
-      cuisine: "American",
-      prepTimeMinutes: 5,
-      cookTimeMinutes: 5,
-      defaultServings: 1,
-      ingredients: [
-        { ingredient_name_raw: "2 slices sourdough bread", ingredient_name_normalized: "bread", quantity: 2, unit: "slices", optional_boolean: false, preparation_note: "toasted" },
-        { ingredient_name_raw: "1 avocado", ingredient_name_normalized: "avocado", quantity: 1, unit: "whole", optional_boolean: false, preparation_note: "mashed" },
-        { ingredient_name_raw: "2 large eggs", ingredient_name_normalized: "eggs", quantity: 2, unit: "whole", optional_boolean: false, preparation_note: "fried" }
-      ],
-      instructions: "1. Toast bread.\n2. Mash avocado on toast.\n3. Top with fried eggs and seasoning.",
-      isApproved: true
-    });
+  const existingStaples = await storage.getPantryStaples();
+  if (existingStaples.length <= 2) { // 2 are from the initial seed
+    const commonStaples = [
+      "Milk", "Eggs", "Butter", "Flour", "Sugar", 
+      "Rice", "Pasta", "Onions", "Garlic", "Potatoes",
+      "Chicken Broth", "Soy Sauce", "Black Pepper", "Honey"
+    ];
 
-    await storage.createPantryStaple({
-      ingredientNameNormalized: "salt",
-      alwaysHave: true,
-      currentlyInStock: true
-    });
-
-    await storage.createPantryStaple({
-      ingredientNameNormalized: "olive oil",
-      alwaysHave: true,
-      currentlyInStock: true
-    });
+    for (const name of commonStaples) {
+      const normalized = name.toLowerCase();
+      if (!existingStaples.find(s => s.ingredientNameNormalized === normalized)) {
+        await storage.createPantryStaple({
+          ingredientNameNormalized: normalized,
+          alwaysHave: true,
+          currentlyInStock: true
+        });
+      }
+    }
   }
 }
