@@ -137,7 +137,12 @@ function RecipeCard({ recipe, index, onClick }: { recipe: any, index: number, on
             <span className="flex items-center gap-1.5"><Users className="w-4 h-4" /> {recipe.defaultServings}</span>
           </div>
           <button 
-            onClick={() => deleteMutation.mutate(recipe.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm("Are you sure you want to delete this recipe?")) {
+                deleteMutation.mutate(recipe.id);
+              }
+            }}
             className="text-muted-foreground hover:text-destructive transition-colors p-1"
           >
             <Trash2 className="w-4 h-4" />

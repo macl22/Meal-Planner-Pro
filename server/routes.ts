@@ -70,9 +70,18 @@ export async function registerRoutes(
 
   app.delete(api.recipes.delete.path, async (req, res) => {
     try {
-      await storage.deleteRecipe(Number(req.params.id));
+      const id = Number(req.params.id);
+      
+      // Check if recipe is used in any weekly plans
+      const meals = await db.select().from(weeklyPlanMeals).where(eq(weeklyPlanMeals.recipeId, id));
+      if (meals.length > 0) {
+        return res.status(400).json({ message: "Cannot delete recipe as it is used in a weekly plan. Remove it from the plan first." });
+      }
+
+      await storage.deleteRecipe(id);
       res.status(204).send();
     } catch (err) {
+      console.error("Delete error:", err);
       res.status(500).json({ message: "Failed to delete recipe" });
     }
   });
@@ -311,9 +320,9 @@ export async function registerRoutes(
       const usedInPlan: number[] = [];
 
       // Logic for picking recipes with leftover/simple meal support
-      const pickRecipe = (type: string) => {
-        // 15% chance of leftovers if we've already picked a meal of this type
-        if (usedInPlan.length > 0 && Math.random() < 0.15) {
+      const pickRecipe = (type: string, dayIndex: number) => {
+        // Leftover logic: 30% chance of leftovers for lunch if dinner was cooked yesterday
+        if (type === 'lunch' && dayIndex > 0 && Math.random() < 0.3) {
           const leftoverRecipe = allRecipes.find(r => r.title === "Leftovers");
           if (leftoverRecipe) return leftoverRecipe;
         }
@@ -335,12 +344,12 @@ export async function registerRoutes(
         );
         
         const picked = suitable.length > 0 ? suitable[Math.floor(Math.random() * suitable.length)] : allRecipes[0];
-        if (picked.id !== -1) usedInPlan.push(picked.id);
+        if (picked.id !== -1 && picked.title !== "Leftovers") usedInPlan.push(picked.id);
         return picked;
       };
 
       for (let i = 0; i < input.lunchesCount; i++) {
-        const recipe = pickRecipe('lunch');
+        const recipe = pickRecipe('lunch', i);
         await storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
           recipeId: recipe.id,
@@ -349,7 +358,7 @@ export async function registerRoutes(
       }
 
       for (let i = 0; i < input.dinnersCount; i++) {
-        const recipe = pickRecipe('dinner');
+        const recipe = pickRecipe('dinner', i);
         await storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
           recipeId: recipe.id,
