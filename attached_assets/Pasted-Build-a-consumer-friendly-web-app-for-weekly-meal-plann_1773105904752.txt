@@ -1,0 +1,269 @@
+Build a **consumer-friendly web app for weekly meal planning and grocery list generation**. The goal is to help me plan meals each week using recipes I already like, optionally discover new recipes from the web, optimize menus so ingredients are reused across recipes, and produce a consolidated shopping list.
+
+Design the interface to be clean, simple, and mobile-friendly.
+
+CORE USER FLOW
+
+1. Recipe Library
+   I can store recipes I like.
+
+Recipes can be added in three ways:
+• manual entry
+• direct import from a recipe URL
+• approving a recipe discovered from the web
+
+Recipe fields:
+title
+source_type (manual / web / imported)
+source_name
+source_url
+description
+meal_type (lunch / dinner / both)
+cuisine
+protein_type
+prep_time_minutes
+cook_time_minutes
+total_time_minutes
+default_servings
+ingredients (structured list)
+instructions
+image_url
+notes
+created_at
+updated_at
+
+Ingredient fields for each recipe:
+ingredient_name_raw
+ingredient_name_normalized
+quantity
+unit
+optional_boolean
+preparation_note
+
+Add duplicate detection using recipe title and URL so the same recipe is not saved twice.
+
+2. Direct Recipe Import from URL
+   Allow me to paste a recipe URL from any website.
+
+When a URL is pasted, automatically fetch the page and extract:
+title
+image
+prep time
+cook time
+servings
+ingredients
+instructions
+
+Populate a structured recipe form for me to review and edit before saving.
+
+If structured data cannot be fully extracted, still import:
+title
+URL
+raw ingredient text
+instructions text
+
+and allow me to manually edit the parsed fields.
+
+3. Pantry Staples
+   Create a list of ingredients I usually have in my kitchen.
+
+Fields:
+ingredient_name_normalized
+default_unit
+always_have_boolean
+currently_in_stock_boolean
+notes
+
+Pantry staples should be excluded from shopping lists by default unless I mark them out of stock.
+
+4. Weekly Planning
+   Each week the app should ask me:
+
+• how many lunches I will eat at home
+• how many dinners I will eat at home
+• how many people each meal needs to serve
+
+Example:
+3 lunches for 1 person
+4 dinners for 3 people
+
+The app then generates a weekly menu using recipes from my library.
+
+Menu generation rules:
+• meet the required number of lunches and dinners
+• scale ingredient quantities based on servings
+• prefer recipes that share ingredients with each other
+• especially reuse perishable ingredients
+• avoid recipes used in the previous 2 weeks
+• balance cuisines and proteins across the week
+• limit high-effort recipes (long prep time) to about 2 per week
+• prefer recipes aligned with my past choices and ratings
+
+The weekly plan screen should allow me to:
+lock a meal
+swap a meal suggestion
+exclude a recipe for this week
+regenerate only unlocked meals
+
+Store weekly plans in history.
+
+5. Shopping List Generation
+   Once a weekly plan is finalized, generate a shopping list.
+
+Steps:
+• aggregate ingredients across all chosen recipes
+• scale quantities by servings needed
+• normalize ingredient names
+• merge duplicate ingredients
+• subtract pantry staples that are marked in stock
+• include pantry staples if marked out of stock
+
+Group the final shopping list by grocery category:
+produce
+meat and seafood
+dairy
+grains and bread
+canned and jarred
+spices and condiments
+frozen
+other
+
+Also include a separate section called “Check Pantry” listing always-have items.
+
+Each item should have a checkbox.
+
+The list should be easy to copy, print, or view on mobile while shopping.
+
+6. Recipe Discovery from the Web
+   Use my saved recipes to infer my food preferences.
+
+Infer preferences from:
+cuisine frequency
+proteins I use often
+common ingredients
+prep time patterns
+meal types
+trusted sources if identifiable
+
+Then periodically search the web for recipes I might like.
+
+For each discovered recipe capture:
+title
+source_name
+source_url
+description
+meal_type
+cuisine
+protein_type
+prep_time_minutes
+cook_time_minutes
+total_time_minutes
+default_servings
+ingredients
+instructions
+image_url
+
+Create a “Discovered Recipes” screen showing suggested recipes.
+
+Each suggestion should show:
+title
+source
+image
+prep time
+key ingredients
+a short explanation of why it was suggested
+
+Examples of explanations:
+“similar cuisine to recipes you often cook”
+“uses ingredients already needed this week”
+“quick dinner under 30 minutes”
+
+Each recipe has:
+Approve
+Reject
+
+Only approved recipes are added to the main recipe library.
+
+Never automatically add web-discovered recipes to the weekly menu without my approval.
+
+Add duplicate detection so the same recipe is not suggested again if already saved or rejected.
+
+7. Discovery Scoring
+   Score discovered recipes using:
+
+similarity to my saved recipes
+ingredient overlap with current weekly plan
+prep time fit
+meal type fit
+novelty without drifting too far from preferences
+
+Display a discovery score internally to rank suggestions.
+
+Only show about 3–5 suggested recipes per week to keep the interface clean.
+
+8. Recipe History and Learning
+   Track when recipes are cooked.
+
+History fields:
+recipe_id
+weekly_plan_id
+cooked_date
+meal_type
+servings
+rating (1–5)
+would_repeat_boolean
+
+Use this data to:
+avoid repeating recipes too frequently
+improve menu generation over time
+prioritize highly rated recipes
+
+9. Interface Screens
+
+Recipe Library
+Search recipes
+Filter by cuisine, protein, meal type, prep time
+Add recipe manually
+Import recipe from URL
+Edit recipe
+
+Recipe Detail Page
+Full ingredients
+Instructions
+Notes
+Edit button
+
+Pantry Staples
+List of staples
+Toggle in-stock / out-of-stock
+
+Weekly Planner
+Week selector
+Input lunches/dinners
+Input servings per meal
+Generate menu
+Lock/swap/regenerate meals
+
+Discovered Recipes
+List of suggested recipes
+Approve / Reject
+
+Shopping List
+Grouped grocery list
+Checkboxes
+Separate “Check Pantry” section
+
+Weekly History
+Past weekly plans and meals cooked
+
+10. Product Rules
+
+Use approved recipes only when generating menus.
+Do not automatically add discovered recipes to the plan.
+Prefer recipes sharing at least two ingredients with others in the same week.
+Exclude pantry staples from the shopping list unless marked out of stock.
+Avoid repeating a recipe within 14 days.
+Cap high-effort recipes to about two per week unless overridden.
+
+Design the app to feel like a clean consumer tool, not an admin dashboard.
+Optimize for fast weekly planning and easy grocery shopping.
