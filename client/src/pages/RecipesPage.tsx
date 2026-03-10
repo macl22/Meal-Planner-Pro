@@ -26,17 +26,6 @@ export default function RecipesPage() {
           </div>
         </header>
 
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search recipes..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-card border-2 border-transparent focus:border-primary/20 focus:ring-4 focus:ring-primary/10 pl-12 pr-4 py-4 rounded-2xl text-lg transition-all shadow-sm"
-          />
-        </div>
-
         <div className="bg-card rounded-3xl p-6 border border-border shadow-sm">
           <h2 className="text-xl font-bold font-display mb-4 flex items-center gap-2">
             <LinkIcon className="w-5 h-5 text-primary" /> Quick Import
@@ -64,6 +53,17 @@ export default function RecipesPage() {
             </button>
           </div>
           <p className="text-xs text-muted-foreground mt-3">Paste a URL from any site to automatically extract ingredients and instructions.</p>
+        </div>
+
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search recipes..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-card border-2 border-transparent focus:border-primary/20 focus:ring-4 focus:ring-primary/10 pl-12 pr-4 py-4 rounded-2xl text-lg transition-all shadow-sm"
+          />
         </div>
 
         <AnimatePresence>
