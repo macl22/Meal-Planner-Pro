@@ -90,50 +90,50 @@ export async function registerRoutes(
       const description = $('meta[name="description"]').attr('content') || "";
       const sourceName = new URL(input.url).hostname;
       
-      // Attempt to extract structured data (schema.org/Recipe)
+      // AI Extraction fallback for sites without schema.org
+      const prompt = `Extract recipe data from this HTML. 
+      HTML: ${html.slice(0, 10000)}
+      Return ONLY a JSON object with:
+      title, description, mealType (lunch, dinner, or both), prepTimeMinutes, cookTimeMinutes, 
+      ingredients (array of {raw, normalized, quantity, unit}), instructions (string).`;
+      
       let recipeData: any = null;
-      $('script[type="application/ld+json"]').each((i, el) => {
-        try {
-          const data = JSON.parse($(el).html() || "{}");
-          if (data['@type'] === 'Recipe' || (Array.isArray(data) && data.some((d:any) => d['@type'] === 'Recipe'))) {
-            recipeData = Array.isArray(data) ? data.find((d:any) => d['@type'] === 'Recipe') : data;
-          }
-        } catch(e) {}
-      });
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: prompt }],
+          response_format: { type: "json_object" }
+        });
+        recipeData = JSON.parse(completion.choices[0].message.content || "{}");
+      } catch (e) {
+        console.error("AI Extraction failed, falling back to basic extraction", e);
+      }
 
       let extractedIngredients: any[] = [];
       let extractedInstructions = "";
 
-      if (recipeData) {
-        if (recipeData.recipeIngredient && Array.isArray(recipeData.recipeIngredient)) {
-          extractedIngredients = recipeData.recipeIngredient.map((i: string) => ({
-            ingredient_name_raw: i,
-            ingredient_name_normalized: i,
-            quantity: null,
-            unit: null,
-            optional_boolean: false,
-            preparation_note: null
-          }));
-        }
-        
-        if (recipeData.recipeInstructions) {
-          if (Array.isArray(recipeData.recipeInstructions)) {
-            extractedInstructions = recipeData.recipeInstructions.map((i: any) => i.text || "").join("\n");
-          } else {
-            extractedInstructions = recipeData.recipeInstructions;
-          }
-        }
+      if (recipeData && recipeData.ingredients) {
+        extractedIngredients = recipeData.ingredients.map((i: any) => ({
+          ingredient_name_raw: i.raw || i,
+          ingredient_name_normalized: i.normalized || i.raw || i,
+          quantity: i.quantity || null,
+          unit: i.unit || null,
+          optional_boolean: false,
+          preparation_note: null
+        }));
+        extractedInstructions = recipeData.instructions || "";
       }
 
       const recipe = await storage.createRecipe({
-        title,
-        description,
+        title: recipeData?.title || title,
+        description: recipeData?.description || description,
         sourceUrl: input.url,
         sourceName,
         sourceType: "imported",
         ingredients: extractedIngredients,
         instructions: extractedInstructions,
-        isApproved: true
+        isApproved: true,
+        mealType: recipeData?.mealType || "both"
       });
 
       res.status(200).json(recipe);
@@ -274,13 +274,11 @@ export async function registerRoutes(
     try {
       const input = api.weeklyPlans.generate.input.parse(req.body);
       
-      // Get approved recipes
       const allRecipes = await storage.getRecipes(true);
       if (allRecipes.length === 0) {
         return res.status(400).json({ message: "You need to add some recipes first!" });
       }
 
-      // Create the plan
       const plan = await storage.createWeeklyPlan({
         startDate: new Date(),
         lunchesCount: input.lunchesCount,
@@ -288,31 +286,43 @@ export async function registerRoutes(
         servingsPerMeal: input.servingsPerMeal
       });
 
-      // Simple generation: pick random recipes
-      // For lunches
-      for (let i = 0; i < input.lunchesCount; i++) {
-        const lunchRecipes = allRecipes.filter(r => r.mealType === 'lunch' || r.mealType === 'both');
-        if (lunchRecipes.length > 0) {
-          const recipe = lunchRecipes[Math.floor(Math.random() * lunchRecipes.length)];
-          await storage.createWeeklyPlanMeal({
-            weeklyPlanId: plan.id,
-            recipeId: recipe.id,
-            mealType: 'lunch'
-          });
+      const usedInPlan: number[] = [];
+
+      // Logic for picking recipes with leftover/simple meal support
+      const pickRecipe = (type: string) => {
+        // 20% chance of a "Simple Meal" if we have any
+        if (Math.random() < 0.2) {
+          const simple = allRecipes.find(r => r.title.toLowerCase().includes("chicken thighs") || r.title.toLowerCase().includes("simple"));
+          if (simple) return simple;
         }
+
+        // 15% chance of leftovers if we've already picked a meal
+        if (usedInPlan.length > 0 && Math.random() < 0.15) {
+          return { id: -1, title: "Leftovers", mealType: type } as any;
+        }
+
+        const suitable = allRecipes.filter(r => (r.mealType === type || r.mealType === 'both') && !usedInPlan.includes(r.id));
+        const picked = suitable.length > 0 ? suitable[Math.floor(Math.random() * suitable.length)] : allRecipes[0];
+        if (picked.id !== -1) usedInPlan.push(picked.id);
+        return picked;
+      };
+
+      for (let i = 0; i < input.lunchesCount; i++) {
+        const recipe = pickRecipe('lunch');
+        await storage.createWeeklyPlanMeal({
+          weeklyPlanId: plan.id,
+          recipeId: recipe.id === -1 ? allRecipes[0].id : recipe.id, // Fallback for schema
+          mealType: 'lunch'
+        });
       }
 
-      // For dinners
       for (let i = 0; i < input.dinnersCount; i++) {
-        const dinnerRecipes = allRecipes.filter(r => r.mealType === 'dinner' || r.mealType === 'both');
-        if (dinnerRecipes.length > 0) {
-          const recipe = dinnerRecipes[Math.floor(Math.random() * dinnerRecipes.length)];
-          await storage.createWeeklyPlanMeal({
-            weeklyPlanId: plan.id,
-            recipeId: recipe.id,
-            mealType: 'dinner'
-          });
-        }
+        const recipe = pickRecipe('dinner');
+        await storage.createWeeklyPlanMeal({
+          weeklyPlanId: plan.id,
+          recipeId: recipe.id === -1 ? allRecipes[0].id : recipe.id,
+          mealType: 'dinner'
+        });
       }
 
       const completePlan = await storage.getWeeklyPlan(plan.id);

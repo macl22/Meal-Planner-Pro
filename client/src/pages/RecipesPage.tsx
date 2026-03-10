@@ -2,14 +2,14 @@ import { useState } from "react";
 import { useRecipes, useImportRecipe, useDeleteRecipe } from "@/hooks/use-recipes";
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { Plus, Search, Link as LinkIcon, Trash2, Clock, Users, X } from "lucide-react";
+import { Plus, Search, Link as LinkIcon, Trash2, Clock, Users, X, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function RecipesPage() {
   const [search, setSearch] = useState("");
   const { data: recipes, isLoading } = useRecipes({ isApproved: true, search: search.length > 2 ? search : undefined });
-  const [showImport, setShowImport] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState<any>(null);
+  const importMutation = useImportRecipe();
 
   return (
     <Layout>
@@ -43,8 +43,35 @@ export default function RecipesPage() {
           />
         </div>
 
-        {showImport && <ImportRecipeModal onClose={() => setShowImport(false)} />}
-        
+        <div className="bg-card rounded-3xl p-6 border border-border shadow-sm">
+          <h2 className="text-xl font-bold font-display mb-4 flex items-center gap-2">
+            <LinkIcon className="w-5 h-5 text-primary" /> Quick Import
+          </h2>
+          <div className="flex gap-3">
+            <input
+              type="url"
+              placeholder="Paste recipe URL (https://...)"
+              id="quick-import-url"
+              className="flex-1 bg-background border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 px-4 py-3 rounded-xl transition-all"
+            />
+            <button 
+              onClick={() => {
+                const input = document.getElementById('quick-import-url') as HTMLInputElement;
+                if (input.value) {
+                  importMutation.mutate(input.value, { 
+                    onSuccess: () => { input.value = ''; } 
+                  });
+                }
+              }}
+              disabled={importMutation.isPending}
+              className="bg-primary text-primary-foreground px-6 py-3 rounded-xl font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {importMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Import'}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">Paste a URL from any site to automatically extract ingredients and instructions.</p>
+        </div>
+
         <AnimatePresence>
           {selectedRecipe && (
             <RecipeDetailModal 
