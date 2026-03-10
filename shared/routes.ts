@@ -163,6 +163,14 @@ export const api = {
         404: errorSchemas.notFound,
       }
     },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/weekly-plans/:id' as const,
+      responses: {
+        204: z.void(),
+        404: errorSchemas.notFound,
+      }
+    },
     updateMeal: {
       method: 'PUT' as const,
       path: '/api/weekly-plan-meals/:id' as const,

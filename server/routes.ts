@@ -390,6 +390,15 @@ export async function registerRoutes(
     }
   });
 
+  app.delete(api.weeklyPlans.delete.path, async (req, res) => {
+    try {
+      await storage.deleteWeeklyPlan(Number(req.params.id));
+      res.status(204).send();
+    } catch (err) {
+      res.status(500).json({ message: "Failed to delete weekly plan" });
+    }
+  });
+
   // Swap a meal
   app.post(api.weeklyPlans.regenerateMeal.path, async (req, res) => {
     try {

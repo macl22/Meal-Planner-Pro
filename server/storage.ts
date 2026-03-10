@@ -33,6 +33,7 @@ export interface IStorage {
   getWeeklyPlans(): Promise<WeeklyPlan[]>;
   getWeeklyPlan(id: number): Promise<(WeeklyPlan & { meals: (WeeklyPlanMeal & { recipe: Recipe })[] }) | undefined>;
   createWeeklyPlan(plan: InsertWeeklyPlan): Promise<WeeklyPlan>;
+  deleteWeeklyPlan(id: number): Promise<void>;
   
   // Weekly Plan Meals
   createWeeklyPlanMeal(meal: InsertWeeklyPlanMeal): Promise<WeeklyPlanMeal>;
@@ -113,6 +114,10 @@ export class DatabaseStorage implements IStorage {
   async createWeeklyPlan(plan: InsertWeeklyPlan): Promise<WeeklyPlan> {
     const [newPlan] = await db.insert(weeklyPlans).values(plan).returning();
     return newPlan;
+  }
+
+  async deleteWeeklyPlan(id: number): Promise<void> {
+    await db.delete(weeklyPlans).where(eq(weeklyPlans.id, id));
   }
 
   async createWeeklyPlanMeal(meal: InsertWeeklyPlanMeal): Promise<WeeklyPlanMeal> {

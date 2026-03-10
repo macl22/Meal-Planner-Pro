@@ -41,6 +41,25 @@ export function useGeneratePlan() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.weeklyPlans.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.weeklyPlans.get.path] });
+    },
+  });
+}
+
+export function useDeleteWeeklyPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const url = buildUrl(api.weeklyPlans.delete.path, { id });
+      const res = await fetch(url, {
+        method: api.weeklyPlans.delete.method,
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to delete plan");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.weeklyPlans.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.weeklyPlans.get.path] });
     },
   });
 }

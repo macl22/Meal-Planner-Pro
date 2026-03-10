@@ -1,15 +1,16 @@
 import { useState } from "react";
-import { useWeeklyPlans, useWeeklyPlan, useGeneratePlan, useRegenerateMeal, useUpdateMeal } from "@/hooks/use-weekly-plans";
+import { useWeeklyPlans, useWeeklyPlan, useGeneratePlan, useRegenerateMeal, useUpdateMeal, useDeleteWeeklyPlan } from "@/hooks/use-weekly-plans";
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { format, parseISO } from "date-fns";
-import { Utensils, RefreshCw, Lock, LockOpen, ShoppingCart, Plus, Loader2 } from "lucide-react";
+import { Utensils, RefreshCw, Lock, LockOpen, ShoppingCart, Plus, Loader2, Trash2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function PlanPage() {
   const { data: plans, isLoading: plansLoading } = useWeeklyPlans();
   const [isGenerating, setIsGenerating] = useState(false);
+  const deleteMutation = useDeleteWeeklyPlan();
   const [, setLocation] = useLocation();
 
   if (plansLoading) return <Layout><LoadingState message="Loading your plan..." /></Layout>;
@@ -17,9 +18,16 @@ export default function PlanPage() {
   // Pick the most recent plan, or null if none
   const activePlan = plans && plans.length > 0 ? plans[0] : null;
 
+  const handleDelete = () => {
+    if (!activePlan) return;
+    if (confirm("Are you sure you want to delete this weekly plan? This will clear your current menu.")) {
+      deleteMutation.mutate(activePlan.id);
+    }
+  };
+
   return (
     <Layout>
-      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
         <header className="flex justify-between items-end">
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight font-display mb-2">This Week</h1>
@@ -61,7 +69,19 @@ export default function PlanPage() {
             </button>
           </div>
         ) : (
-          <PlanViewer planId={activePlan.id} />
+          <>
+            <PlanViewer planId={activePlan.id} />
+            <div className="flex justify-center pt-8">
+              <button 
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+                className="active-elevate-2 flex items-center gap-2 text-destructive hover:bg-destructive/10 px-6 py-4 rounded-2xl font-semibold transition-all"
+              >
+                {deleteMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                Delete This Plan
+              </button>
+            </div>
+          </>
         )}
 
         <AnimatePresence>
