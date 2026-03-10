@@ -81,67 +81,89 @@ export async function registerRoutes(
   app.post(api.recipes.importFromUrl.path, async (req, res) => {
     try {
       const input = api.recipes.importFromUrl.input.parse(req.body);
+      console.log(`Attempting to import from: ${input.url}`);
       
-      const response = await fetch(input.url);
+      const response = await fetch(input.url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch URL: ${response.statusText}`);
+      }
+
       const html = await response.text();
       const $ = cheerio.load(html);
       
-      const title = $('title').text() || $('h1').first().text() || "Imported Recipe";
-      const description = $('meta[name="description"]').attr('content') || "";
+      // Better cleaning: remove non-content elements
+      $('script, style, header, footer, nav, noscript, .ads, .sidebar, .comments, iframe').remove();
+      
+      // Try to find the recipe specific content first
+      const recipeContainer = $('.wprm-recipe-container, .recipe-content, .recipe, article').first();
+      const contentText = recipeContainer.length > 0 ? recipeContainer.text() : $('body').text();
+      const cleanedContent = contentText.replace(/\s\s+/g, ' ').trim().slice(0, 12000);
+
+      const pageTitle = $('title').text().split('|')[0].trim() || $('h1').first().text().trim() || "Imported Recipe";
       const sourceName = new URL(input.url).hostname;
       
-      // AI Extraction fallback for sites without schema.org
-      const prompt = `Extract recipe data from this HTML. 
-      HTML: ${html.slice(0, 10000)}
+      const prompt = `Extract recipe data from this text. 
+      Text: ${cleanedContent}
       Return ONLY a JSON object with:
-      title, description, mealType (lunch, dinner, or both), prepTimeMinutes, cookTimeMinutes, 
-      ingredients (array of {raw, normalized, quantity, unit}), instructions (string).`;
+      title (string), description (string), mealType ("lunch", "dinner", or "both"), prepTimeMinutes (number), cookTimeMinutes (number), 
+      ingredients (array of {raw: string, normalized: string, quantity: number|null, unit: string|null}), instructions (string).`;
       
       let recipeData: any = null;
       try {
         const completion = await openai.chat.completions.create({
           model: "gpt-4o-mini",
-          messages: [{ role: "user", content: prompt }],
+          messages: [
+            { role: "system", content: "You are a helpful assistant that extracts recipe data from text into clean JSON." },
+            { role: "user", content: prompt }
+          ],
           response_format: { type: "json_object" }
         });
         recipeData = JSON.parse(completion.choices[0].message.content || "{}");
       } catch (e) {
-        console.error("AI Extraction failed, falling back to basic extraction", e);
+        console.error("AI Extraction failed:", e);
       }
 
+      const finalTitle = recipeData?.title || pageTitle || "Imported Recipe";
+      
       let extractedIngredients: any[] = [];
-      let extractedInstructions = "";
-
-      if (recipeData && recipeData.ingredients) {
+      if (recipeData && Array.isArray(recipeData.ingredients)) {
         extractedIngredients = recipeData.ingredients.map((i: any) => ({
-          ingredient_name_raw: i.raw || i,
-          ingredient_name_normalized: i.normalized || i.raw || i,
-          quantity: i.quantity || null,
+          ingredient_name_raw: i.raw || (typeof i === 'string' ? i : "Ingredient"),
+          ingredient_name_normalized: i.normalized || i.raw || (typeof i === 'string' ? i : "Ingredient"),
+          quantity: typeof i.quantity === 'number' ? i.quantity : null,
           unit: i.unit || null,
           optional_boolean: false,
           preparation_note: null
         }));
-        extractedInstructions = recipeData.instructions || "";
       }
 
       const recipe = await storage.createRecipe({
-        title: recipeData?.title || title,
-        description: recipeData?.description || description,
+        title: finalTitle,
+        description: recipeData?.description || "",
         sourceUrl: input.url,
         sourceName,
         sourceType: "imported",
         ingredients: extractedIngredients,
-        instructions: extractedInstructions,
+        instructions: recipeData?.instructions || "No instructions found.",
         isApproved: true,
-        mealType: recipeData?.mealType || "both"
+        mealType: recipeData?.mealType || "both",
+        prepTimeMinutes: recipeData?.prepTimeMinutes || null,
+        cookTimeMinutes: recipeData?.cookTimeMinutes || null,
+        totalTimeMinutes: (recipeData?.prepTimeMinutes || 0) + (recipeData?.cookTimeMinutes || 0) || null
       });
 
+      console.log(`Successfully imported: ${recipe.title}`);
       res.status(200).json(recipe);
     } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      res.status(500).json({ message: "Failed to import recipe" });
+      console.error("Import error details:", err);
+      res.status(500).json({ message: "Failed to import recipe. The site might be blocking access or content is too complex." });
     }
   });
 
@@ -290,18 +312,28 @@ export async function registerRoutes(
 
       // Logic for picking recipes with leftover/simple meal support
       const pickRecipe = (type: string) => {
-        // 20% chance of a "Simple Meal" if we have any
+        // 15% chance of leftovers if we've already picked a meal of this type
+        if (usedInPlan.length > 0 && Math.random() < 0.15) {
+          const leftoverRecipe = allRecipes.find(r => r.title === "Leftovers");
+          if (leftoverRecipe) return leftoverRecipe;
+        }
+
+        // 20% chance of a "Simple Meal" 
         if (Math.random() < 0.2) {
-          const simple = allRecipes.find(r => r.title.toLowerCase().includes("chicken thighs") || r.title.toLowerCase().includes("simple"));
+          const simple = allRecipes.find(r => 
+            r.title.toLowerCase().includes("chicken thighs") || 
+            r.title.toLowerCase().includes("simple") ||
+            r.title.toLowerCase().includes("roasted")
+          );
           if (simple) return simple;
         }
 
-        // 15% chance of leftovers if we've already picked a meal
-        if (usedInPlan.length > 0 && Math.random() < 0.15) {
-          return { id: -1, title: "Leftovers", mealType: type } as any;
-        }
-
-        const suitable = allRecipes.filter(r => (r.mealType === type || r.mealType === 'both') && !usedInPlan.includes(r.id));
+        const suitable = allRecipes.filter(r => 
+          (r.mealType === type || r.mealType === 'both') && 
+          !usedInPlan.includes(r.id) &&
+          r.title !== "Leftovers"
+        );
+        
         const picked = suitable.length > 0 ? suitable[Math.floor(Math.random() * suitable.length)] : allRecipes[0];
         if (picked.id !== -1) usedInPlan.push(picked.id);
         return picked;
@@ -311,7 +343,7 @@ export async function registerRoutes(
         const recipe = pickRecipe('lunch');
         await storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
-          recipeId: recipe.id === -1 ? allRecipes[0].id : recipe.id, // Fallback for schema
+          recipeId: recipe.id,
           mealType: 'lunch'
         });
       }
@@ -320,7 +352,7 @@ export async function registerRoutes(
         const recipe = pickRecipe('dinner');
         await storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
-          recipeId: recipe.id === -1 ? allRecipes[0].id : recipe.id,
+          recipeId: recipe.id,
           mealType: 'dinner'
         });
       }
@@ -459,28 +491,63 @@ export async function registerRoutes(
 }
 
 async function seedDatabase() {
-  const existingRecipes = await storage.getRecipes();
-  if (existingRecipes.length === 0) {
-    // ... (existing recipes)
-  }
+  try {
+    const existingRecipes = await storage.getRecipes();
+    const hasLeftovers = existingRecipes.some(r => r.title === "Leftovers");
+    
+    if (!hasLeftovers) {
+      await storage.createRecipe({
+        title: "Leftovers",
+        description: "Enjoy leftovers from a previous meal.",
+        sourceType: "manual",
+        mealType: "both",
+        ingredients: [],
+        instructions: "Reheat and enjoy!",
+        isApproved: true
+      });
+    }
 
-  const existingStaples = await storage.getPantryStaples();
-  if (existingStaples.length <= 2) { // 2 are from the initial seed
-    const commonStaples = [
-      "Milk", "Eggs", "Butter", "Flour", "Sugar", 
-      "Rice", "Pasta", "Onions", "Garlic", "Potatoes",
-      "Chicken Broth", "Soy Sauce", "Black Pepper", "Honey"
-    ];
+    const hasSimple = existingRecipes.some(r => r.title.includes("Simple Roasted Chicken"));
+    if (!hasSimple) {
+      await storage.createRecipe({
+        title: "Simple Roasted Chicken & Sweet Potatoes",
+        description: "A healthy, easy meal with minimal cleanup.",
+        sourceType: "manual",
+        mealType: "dinner",
+        cuisine: "American",
+        prepTimeMinutes: 10,
+        cookTimeMinutes: 40,
+        defaultServings: 2,
+        ingredients: [
+          { ingredient_name_raw: "4 chicken thighs", ingredient_name_normalized: "chicken thighs", quantity: 4, unit: "pcs", optional_boolean: false, preparation_note: null },
+          { ingredient_name_raw: "2 sweet potatoes", ingredient_name_normalized: "sweet potatoes", quantity: 2, unit: "large", optional_boolean: false, preparation_note: "cubed" },
+          { ingredient_name_raw: "1 head broccoli", ingredient_name_normalized: "broccoli", quantity: 1, unit: "head", optional_boolean: false, preparation_note: "florets" }
+        ],
+        instructions: "1. Toss chicken and veggies in olive oil, salt, and pepper.\n2. Roast at 400°F for 35-40 minutes.",
+        isApproved: true
+      });
+    }
 
-    for (const name of commonStaples) {
-      const normalized = name.toLowerCase();
-      if (!existingStaples.find(s => s.ingredientNameNormalized === normalized)) {
-        await storage.createPantryStaple({
-          ingredientNameNormalized: normalized,
-          alwaysHave: true,
-          currentlyInStock: true
-        });
+    const existingStaples = await storage.getPantryStaples();
+    if (existingStaples.length <= 2) {
+      const commonStaples = [
+        "Milk", "Eggs", "Butter", "Flour", "Sugar", 
+        "Rice", "Pasta", "Onions", "Garlic", "Potatoes",
+        "Chicken Broth", "Soy Sauce", "Black Pepper", "Honey"
+      ];
+
+      for (const name of commonStaples) {
+        const normalized = name.toLowerCase();
+        if (!existingStaples.find(s => s.ingredientNameNormalized === normalized)) {
+          await storage.createPantryStaple({
+            ingredientNameNormalized: normalized,
+            alwaysHave: true,
+            currentlyInStock: true
+          });
+        }
       }
     }
+  } catch (e) {
+    console.error("Seeding error:", e);
   }
 }

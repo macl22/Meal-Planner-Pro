@@ -20,12 +20,6 @@ export default function RecipesPage() {
             <p className="text-muted-foreground text-lg">Your curated collection</p>
           </div>
           <div className="flex gap-2 w-full sm:w-auto">
-            <button 
-              onClick={() => setShowImport(true)}
-              className="active-elevate-2 flex-1 sm:flex-none flex items-center justify-center gap-2 bg-secondary text-secondary-foreground px-4 py-3 rounded-2xl font-semibold hover:bg-secondary/80 transition-all"
-            >
-              <LinkIcon className="w-5 h-5" /> Import
-            </button>
             <button className="active-elevate-2 flex-1 sm:flex-none flex items-center justify-center gap-2 bg-foreground text-background px-4 py-3 rounded-2xl font-semibold hover:bg-foreground/90 transition-all shadow-xl">
               <Plus className="w-5 h-5" /> New
             </button>
