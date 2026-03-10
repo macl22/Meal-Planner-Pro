@@ -310,6 +310,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "You need to add some recipes first!" });
       }
 
+      // Instead of always creating a new plan, we can reuse or replace
+      // For now, let's just make sure the generation is robust
       const plan = await storage.createWeeklyPlan({
         startDate: new Date(),
         lunchesCount: input.lunchesCount,
@@ -337,41 +339,50 @@ export async function registerRoutes(
           if (simple) return simple;
         }
 
-        const suitable = allRecipes.filter(r => 
+        let suitable = allRecipes.filter(r => 
           (r.mealType === type || r.mealType === 'both') && 
           !usedInPlan.includes(r.id) &&
           r.title !== "Leftovers"
         );
+        
+        // If we ran out of unique recipes, relax the constraint
+        if (suitable.length === 0) {
+          suitable = allRecipes.filter(r => 
+            (r.mealType === type || r.mealType === 'both') && 
+            r.title !== "Leftovers"
+          );
+        }
         
         const picked = suitable.length > 0 ? suitable[Math.floor(Math.random() * suitable.length)] : allRecipes[0];
         if (picked.id !== -1 && picked.title !== "Leftovers") usedInPlan.push(picked.id);
         return picked;
       };
 
+      const mealPromises = [];
       for (let i = 0; i < input.lunchesCount; i++) {
         const recipe = pickRecipe('lunch', i);
-        await storage.createWeeklyPlanMeal({
+        mealPromises.push(storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
           recipeId: recipe.id,
           mealType: 'lunch'
-        });
+        }));
       }
 
       for (let i = 0; i < input.dinnersCount; i++) {
         const recipe = pickRecipe('dinner', i);
-        await storage.createWeeklyPlanMeal({
+        mealPromises.push(storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
           recipeId: recipe.id,
           mealType: 'dinner'
-        });
+        }));
       }
+
+      await Promise.all(mealPromises);
 
       const completePlan = await storage.getWeeklyPlan(plan.id);
       res.status(201).json(completePlan);
     } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
+      console.error("Generation error:", err);
       res.status(500).json({ message: "Failed to generate plan" });
     }
   });

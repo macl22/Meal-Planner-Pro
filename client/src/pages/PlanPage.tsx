@@ -25,12 +25,23 @@ export default function PlanPage() {
             <h1 className="text-4xl font-extrabold tracking-tight font-display mb-2">This Week</h1>
             <p className="text-muted-foreground text-lg">Your personalized menu</p>
           </div>
-          {activePlan && (
-            <Link href={`/shopping-list/${activePlan.id}`} className="active-elevate-2 flex items-center gap-2 bg-primary text-primary-foreground px-5 py-3 rounded-2xl font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all">
-              <ShoppingCart className="w-5 h-5" />
-              <span className="hidden sm:inline">Shopping List</span>
-            </Link>
-          )}
+          <div className="flex gap-2">
+            {activePlan && (
+              <button 
+                onClick={() => setIsGenerating(true)}
+                className="active-elevate-2 flex items-center gap-2 bg-secondary text-secondary-foreground px-5 py-3 rounded-2xl font-semibold hover:bg-secondary/80 transition-all"
+              >
+                <RefreshCw className="w-5 h-5" />
+                <span className="hidden sm:inline">Regenerate</span>
+              </button>
+            )}
+            {activePlan && (
+              <Link href={`/shopping-list/${activePlan.id}`} className="active-elevate-2 flex items-center gap-2 bg-primary text-primary-foreground px-5 py-3 rounded-2xl font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all">
+                <ShoppingCart className="w-5 h-5" />
+                <span className="hidden sm:inline">Shopping List</span>
+              </Link>
+            )}
+          </div>
         </header>
 
         {!activePlan ? (
