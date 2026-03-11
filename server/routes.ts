@@ -184,51 +184,91 @@ export async function registerRoutes(
     try {
       const approvedRecipes = await storage.getRecipes(true);
       
-      // Extract preferences from existing recipes
       const cuisines = [...new Set(approvedRecipes.map(r => r.cuisine).filter(Boolean))];
       const proteins = [...new Set(approvedRecipes.map(r => r.proteinType).filter(Boolean))];
       const titles = approvedRecipes.map(r => r.title);
 
-      // Infer style from recipe titles
+      const keyIngredients = [...new Set(
+        approvedRecipes
+          .flatMap(r => {
+            const ingredients = r.ingredients as any[];
+            return (ingredients || []).map((i: any) => {
+              const raw = typeof i === 'string' ? i : (i.ingredient_name_normalized || i.ingredient_name_raw || '');
+              return raw.replace(/^\d[\d\/\s]*(?:cup|tbsp|tsp|oz|lb|g|ml|clove|bunch|can|piece|slice|pinch|dash)s?\b\s*/i, '').replace(/,.*$/, '').trim().toLowerCase();
+            }).filter((name: string) => name.length > 2);
+          })
+      )].slice(0, 25);
+
+      const sampleIngredientContext = keyIngredients.length > 0
+        ? `Key ingredients they cook with: ${keyIngredients.join(', ')}`
+        : '';
+
       const styleClues = titles.slice(0, 15).join(', ');
       
-      const prompt = `You are a recipe discovery engine. Based on a user's existing recipe collection, suggest 3 NEW popular, highly-rated recipes they would love.
+      const prompt = `Based on this home cook's recipe collection, suggest 3 NEW recipes they'd genuinely crave making on a weeknight.
 
-User's existing recipes: ${styleClues || 'None yet - suggest popular weeknight dinners'}
+USER'S COOKING PROFILE:
+Existing recipes: ${styleClues || 'None yet - suggest exciting weeknight dinners'}
 Cuisines they enjoy: ${cuisines.join(', ') || 'variety'}
-Proteins they use: ${proteins.join(', ') || 'chicken, beef, pork, fish'}
+Proteins they use: ${proteins.join(', ') || 'chicken, beef, pork, fish, tofu'}
+${sampleIngredientContext}
 
-Rules:
-- Suggest POPULAR recipes that are widely loved (think recipes that would have 4.3+ star ratings on major cooking sites)
-- Each suggestion must be DIFFERENT from what the user already has
-- Include a mix of weeknight dinners and lunch/versatile options
-- Keep ingredients practical and accessible
-- Each recipe should be flavorful, simple enough for a home cook, and meal-prep friendly
+REQUIREMENTS — every suggestion MUST satisfy ALL of these:
+1. FAST: Total time (prep + cook) must be 45 minutes or under. No exceptions. Most should be 30 minutes or less.
+2. BOLD FLAVOR: Every recipe needs a punch — think caramelized edges, punchy sauces, fresh herbs, toasted spices, acid brightness, umami depth. No bland food. No plain steamed anything.
+3. NUTRITIOUS: Lean protein + at least one vegetable in every dish. Whole grains and legumes welcome. No beige-only plates.
+4. GLOBALLY INSPIRED: Draw from real cuisines worldwide — Thai, Mexican, Mediterranean, Korean, Japanese, Indian, Middle Eastern, West African, Peruvian, etc. No generic "stir fry" or "grain bowl" without real culinary identity.
+5. HOME-COOK ACCESSIBLE: Ingredients available at a regular grocery store. Techniques a confident beginner can handle.
+6. CRAVE-WORTHY: These should be meals people get excited about, not dutiful health food. Think "restaurant-quality flavor, home-kitchen effort."
+7. DIFFERENT from the user's existing recipes — no duplicates or obvious variations.
 
-Return ONLY a JSON object with a "suggestions" array of 3 recipes. Each recipe should have:
-title, description, mealType ("lunch", "dinner", or "both"), cuisine, proteinType, prepTimeMinutes, cookTimeMinutes, 
+ANTI-PATTERNS to avoid:
+- Sad salads, plain grain bowls, unseasoned chicken + rice
+- Anything that tastes like "diet food" or "meal prep bro food"
+- Overly fussy plating or cheffy techniques
+- Recipes that rely on a single condiment for all flavor
+
+Return ONLY a JSON object with a "suggestions" array of 3 recipes. Each recipe must have:
+title, description (1-2 sentences emphasizing what makes it delicious), mealType ("lunch", "dinner", or "both"), cuisine, proteinType, prepTimeMinutes, cookTimeMinutes, 
 ingredients (array of strings like "2 cloves garlic, minced"), instructions (step-by-step string), 
-discoveryReason (why this fits the user's taste, 1 sentence)`;
+discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentence)`;
       
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "You are a helpful recipe recommendation assistant. Always return valid JSON." },
+          { role: "system", content: "You are a world-class chef who specializes in making healthy food taste absolutely amazing. You believe nutritious cooking should be vibrant, bold, and crave-worthy — never bland or punishing. You draw on global cuisines and restaurant techniques adapted for the home kitchen. You always keep weeknight reality in mind: 45 minutes max, grocery-store ingredients, minimal cleanup. Always return valid JSON." },
           { role: "user", content: prompt }
         ],
         response_format: { type: "json_object" }
       });
       
       const data = JSON.parse(completion.choices[0].message.content || "{}");
-      const suggestions = data.suggestions || [data];
+      let suggestions = data.suggestions || [data];
+
+      const MAX_TOTAL_TIME = 45;
+      suggestions = suggestions
+        .map((s: any) => {
+          let prep = Number(s.prepTimeMinutes);
+          let cook = Number(s.cookTimeMinutes);
+          if (!Number.isFinite(prep) || prep < 0) prep = 10;
+          if (!Number.isFinite(cook) || cook < 0) cook = 20;
+          if (prep + cook > MAX_TOTAL_TIME) {
+            s.timeCapped = true;
+            const ratio = prep / (prep + cook);
+            prep = Math.round(MAX_TOTAL_TIME * ratio);
+            cook = MAX_TOTAL_TIME - prep;
+          }
+          s.prepTimeMinutes = prep;
+          s.cookTimeMinutes = cook;
+          return s;
+        })
+        .filter((s: any) => s.prepTimeMinutes + s.cookTimeMinutes <= MAX_TOTAL_TIME);
       
-      // Delete any old unreviewed suggestions to keep things fresh
       const oldUnreviewed = await storage.getRecipes(false);
       for (const old of oldUnreviewed) {
         await storage.deleteRecipe(old.id);
       }
 
-      // Save all new suggestions
       const savedSuggestions = await Promise.all(suggestions.map(async (s: any) => {
         return storage.createRecipe({
           title: s.title || "Suggested Recipe",
@@ -250,7 +290,7 @@ discoveryReason (why this fits the user's taste, 1 sentence)`;
           instructions: s.instructions || "",
           isApproved: false,
           discoveryScore: Math.floor(Math.random() * 15) + 85,
-          discoveryReason: s.discoveryReason || `Matches your taste for ${s.cuisine || 'flavorful cooking'}`
+          discoveryReason: (s.discoveryReason || `Matches your taste for ${s.cuisine || 'flavorful cooking'}`) + (s.timeCapped ? ' (time adjusted to fit 45-min limit)' : '')
         });
       }));
       
