@@ -452,7 +452,13 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       };
 
       const guessProtein = (recipe: any): string => {
-        if (recipe.proteinType) return recipe.proteinType.toLowerCase();
+        const raw = (recipe.proteinType || '').toLowerCase();
+        // Normalize stored proteinType into canonical buckets
+        if (raw) {
+          for (const [bucket, keywords] of Object.entries(PROTEIN_KEYWORDS)) {
+            if (keywords.some(kw => raw.includes(kw))) return bucket;
+          }
+        }
         const title = (recipe.title || '').toLowerCase();
         for (const [type, keywords] of Object.entries(PROTEIN_KEYWORDS)) {
           if (keywords.some(kw => title.includes(kw))) return type;
