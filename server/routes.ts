@@ -419,78 +419,102 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       const leftoverRecipe = allRecipes.find(r => r.recipeType === 'leftovers' || r.title === 'Leftovers');
       const fallbackRecipe = allRecipes[0];
 
-      // ── Ingredient overlap helpers ────────────────────────────────────
-      const STOP_WORDS = new Set(['with', 'and', 'the', 'for', 'from', 'into', 'over', 'fresh', 'dried', 'large', 'small', 'medium', 'plus', 'more', 'serving', 'about', 'extra', 'finely', 'thinly', 'roughly', 'sliced', 'chopped', 'minced', 'grated', 'diced', 'virgin', 'boneless', 'skinless', 'optional', 'taste', 'kosher', 'black', 'white', 'ground']);
+      // ── Helpers: shuffle & anti-repetition ──────────────────────────
+      const shuffle = <T>(arr: T[]): T[] => [...arr].sort(() => Math.random() - 0.5);
 
-      const getKeywords = (recipe: any): Set<string> => {
-        const ingredients = (recipe.ingredients as any[]) || [];
-        const kws = new Set<string>();
-        ingredients.forEach((ing: any) => {
-          const name = (ing.ingredient_name_normalized || ing.ingredient_name_raw || '').toLowerCase();
-          const cleaned = name
-            .replace(/\d+[\d\/\s]*(cup|tbsp|tsp|oz|lb|g|kg|ml|clove|bunch|can|piece|slice|pinch|dash|head|sprig|stalk|tablespoon|teaspoon|pound|ounce)s?\b/gi, '')
-            .replace(/[()[\]]/g, '');
-          cleaned.split(/[\s,\-]+/).map(w => w.trim()).filter(w => w.length > 3 && !STOP_WORDS.has(w)).forEach(w => kws.add(w));
-        });
-        return kws;
-      };
-
-      // Greedy: pick `count` recipes from candidates maximising pairwise ingredient overlap
-      const pickWithMaxOverlap = (candidates: any[], count: number): any[] => {
-        if (candidates.length <= count) return candidates;
-        const wk = candidates.map(r => ({ recipe: r, kws: getKeywords(r) }));
-
-        // Seed: the recipe with the highest overlap potential against all others
-        let bestSeedScore = -1, seedIdx = 0;
-        wk.forEach((a, i) => {
-          let s = 0;
-          wk.forEach((b, j) => { if (i !== j) for (const k of a.kws) if (b.kws.has(k)) s++; });
-          if (s > bestSeedScore) { bestSeedScore = s; seedIdx = i; }
-        });
-
-        const selected = [wk[seedIdx]];
-        const pool = wk.filter((_, i) => i !== seedIdx);
-
-        while (selected.length < count && pool.length > 0) {
-          let bestScore = -1, bestI = 0;
-          pool.forEach((cand, i) => {
-            let s = 0;
-            for (const sel of selected) for (const k of cand.kws) if (sel.kws.has(k)) s++;
-            if (s > bestScore) { bestScore = s; bestI = i; }
-          });
-          selected.push(pool.splice(bestI, 1)[0]);
+      // Load recently-used recipe IDs from the most recent previous plan
+      // getWeeklyPlans() returns plans sorted by startDate DESC, so after
+      // filtering out the just-created plan, [0] is the most recent prior one.
+      const allPlans = await storage.getWeeklyPlans();
+      const prevPlan = allPlans.filter(p => p.id !== plan.id)[0] || null;
+      let recentRecipeIds = new Set<number>();
+      if (prevPlan) {
+        const prevDetail = await storage.getWeeklyPlan(prevPlan.id);
+        if (prevDetail) {
+          recentRecipeIds = new Set(prevDetail.meals.map(m => m.recipeId));
         }
-        return selected.map(s => s.recipe);
+      }
+
+      // Sort candidates so recently-used ones go to the back, then shuffle each group
+      const deprioritiseRecent = <T extends { id: number }>(arr: T[]): T[] => {
+        const fresh = shuffle(arr.filter(r => !recentRecipeIds.has(r.id)));
+        const recent = shuffle(arr.filter(r => recentRecipeIds.has(r.id)));
+        return [...fresh, ...recent];
       };
 
-      // For simple/extra slots: pick the simple meals that share the most ingredients with already-picked full recipes
-      const pickSimpleByOverlap = (simples: any[], alreadyChosen: any[], count: number): any[] => {
-        if (!simples.length) return [];
-        const chosenKws = new Set(alreadyChosen.flatMap(r => [...getKeywords(r)]));
-        return simples
-          .filter(r => !alreadyChosen.includes(r))
-          .map(r => ({ recipe: r, score: [...getKeywords(r)].filter(k => chosenKws.has(k)).length }))
-          .sort((a, b) => b.score - a.score)
-          .slice(0, count)
-          .map(s => s.recipe);
+      // ── Protein variety: guess protein type from title if not set ──
+      const PROTEIN_KEYWORDS: Record<string, string[]> = {
+        chicken: ['chicken', 'poultry'],
+        fish: ['fish', 'salmon', 'tuna', 'cod', 'shrimp', 'prawn', 'seafood', 'mahi', 'halibut', 'tilapia', 'crab', 'lobster', 'scallop'],
+        beef: ['beef', 'steak', 'burger', 'ground beef', 'meatball', 'brisket'],
+        pork: ['pork', 'bacon', 'ham', 'sausage', 'chorizo'],
+        vegetarian: ['tofu', 'tempeh', 'vegetarian', 'vegan', 'veggie', 'lentil', 'chickpea', 'bean', 'mushroom'],
       };
-      // ─────────────────────────────────────────────────────────────────
 
-      // Build dinner list: max 3 proper recipes (overlap-optimised), rest are simple (also overlap-optimised)
+      const guessProtein = (recipe: any): string => {
+        if (recipe.proteinType) return recipe.proteinType.toLowerCase();
+        const title = (recipe.title || '').toLowerCase();
+        for (const [type, keywords] of Object.entries(PROTEIN_KEYWORDS)) {
+          if (keywords.some(kw => title.includes(kw))) return type;
+        }
+        return 'other';
+      };
+
+      // ── Build dinner list: max 3 full recipes with protein variety ──
       const MAX_PROPER_DINNERS = 3;
       const properDinnerCount = Math.min(MAX_PROPER_DINNERS, input.dinnersCount);
-      const eligibleFull = fullRecipes.filter(r => r.mealType === 'dinner' || r.mealType === 'both');
-      const pickedFull = pickWithMaxOverlap(eligibleFull, properDinnerCount);
+      const eligibleFull = deprioritiseRecent(
+        fullRecipes.filter(r => r.mealType === 'dinner' || r.mealType === 'both')
+      );
 
+      // Group by protein type, pick one per group first for diversity
+      const proteinGroups: Record<string, typeof eligibleFull> = {};
+      eligibleFull.forEach(r => {
+        const pt = guessProtein(r);
+        (proteinGroups[pt] ||= []).push(r);
+      });
+      const groupKeys = shuffle(Object.keys(proteinGroups));
+
+      const pickedFull: (typeof allRecipes[0])[] = [];
+      const usedIds = new Set<number>();
+
+      // Round 1: one from each protein group (up to properDinnerCount)
+      for (const gk of groupKeys) {
+        if (pickedFull.length >= properDinnerCount) break;
+        const candidate = proteinGroups[gk].find(r => !usedIds.has(r.id));
+        if (candidate) {
+          pickedFull.push(candidate);
+          usedIds.add(candidate.id);
+        }
+      }
+      // Round 2: fill remaining slots from whoever is left (already deprioritised by recency)
+      for (const r of eligibleFull) {
+        if (pickedFull.length >= properDinnerCount) break;
+        if (!usedIds.has(r.id)) {
+          pickedFull.push(r);
+          usedIds.add(r.id);
+        }
+      }
+
+      // Fill remaining dinner slots with simple meals (shuffled, deduplicated)
       const simpleSlotCount = Math.max(0, input.dinnersCount - pickedFull.length);
-      const pickedSimple = pickSimpleByOverlap(simpleRecipes, pickedFull, simpleSlotCount);
-      // If not enough simple meals, fall back to more full recipes (overlap-ordered)
-      const extraFull = simpleSlotCount > pickedSimple.length
-        ? pickWithMaxOverlap(eligibleFull.filter(r => !pickedFull.includes(r)), simpleSlotCount - pickedSimple.length)
-        : [];
+      const shuffledSimple = deprioritiseRecent(simpleRecipes).filter(r => !usedIds.has(r.id));
+      const pickedSimple = shuffledSimple.slice(0, simpleSlotCount);
+      pickedSimple.forEach(r => usedIds.add(r.id));
+
+      // If not enough simple meals, fall back to more full recipes
+      const extraFull: (typeof allRecipes[0])[] = [];
+      if (simpleSlotCount > pickedSimple.length) {
+        for (const r of eligibleFull) {
+          if (extraFull.length >= simpleSlotCount - pickedSimple.length) break;
+          if (!usedIds.has(r.id)) {
+            extraFull.push(r);
+            usedIds.add(r.id);
+          }
+        }
+      }
 
       const planDinners: (typeof allRecipes[0])[] = [...pickedFull, ...pickedSimple, ...extraFull].slice(0, input.dinnersCount);
-      // Pad if still short
       while (planDinners.length < input.dinnersCount) planDinners.push(fallbackRecipe);
 
       // Build lunch list: mostly leftovers from dinners; use Leftovers placeholder every other slot
