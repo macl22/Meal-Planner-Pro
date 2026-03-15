@@ -469,8 +469,10 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       });
 
       // Categorize recipes by type
-      const fullRecipes = allRecipes.filter(r => !r.recipeType || r.recipeType === 'full');
-      const simpleRecipes = allRecipes.filter(r => r.recipeType === 'simple');
+      const BAD_TITLES = ["imported recipe", "untitled recipe"];
+      const isBadTitle = (r: any) => BAD_TITLES.includes((r.title || '').toLowerCase().trim());
+      const fullRecipes = allRecipes.filter(r => (!r.recipeType || r.recipeType === 'full') && !isBadTitle(r));
+      const simpleRecipes = allRecipes.filter(r => r.recipeType === 'simple' && !isBadTitle(r));
       const leftoverRecipe = allRecipes.find(r => r.recipeType === 'leftovers' || r.title === 'Leftovers');
       const fallbackRecipe = allRecipes[0];
 
@@ -581,13 +583,7 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       // Build lunch list: mostly leftovers from dinners; use Leftovers placeholder every other slot
       const planLunches: (typeof allRecipes[0])[] = [];
       for (let i = 0; i < input.lunchesCount; i++) {
-        const sourceDinner = planDinners[i % planDinners.length];
-        if (leftoverRecipe && i % 2 === 1) {
-          planLunches.push(leftoverRecipe);
-        } else {
-          // Point to the actual dinner so the plan knows it's a leftover of that recipe
-          planLunches.push(sourceDinner || fallbackRecipe);
-        }
+        planLunches.push(leftoverRecipe || fallbackRecipe);
       }
 
       for (const recipe of planLunches) {
@@ -637,15 +633,18 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       const allRecipes = await storage.getRecipes(true);
       const usedRecipeIds = planWithMeals.meals.map(m => m.recipeId);
       
+      const BAD_SWAP_TITLES = ["imported recipe", "untitled recipe"];
       const suitableRecipes = allRecipes.filter(r => 
         (r.mealType === meal.mealType || r.mealType === 'both') && 
         !usedRecipeIds.includes(r.id) &&
-        r.title !== "Leftovers"
+        r.title !== "Leftovers" &&
+        !BAD_SWAP_TITLES.includes((r.title || '').toLowerCase().trim())
       );
       
       const fallbackRecipes = allRecipes.filter(r => 
         (r.mealType === meal.mealType || r.mealType === 'both') &&
-        r.title !== "Leftovers"
+        r.title !== "Leftovers" &&
+        !BAD_SWAP_TITLES.includes((r.title || '').toLowerCase().trim())
       );
 
       const candidates = suitableRecipes.length > 0 ? suitableRecipes : fallbackRecipes;
