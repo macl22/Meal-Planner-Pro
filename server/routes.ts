@@ -95,7 +95,8 @@ export async function registerRoutes(
 Text: ${text.slice(0, 12000)}
 Return ONLY a JSON object with:
 title (string), description (string), mealType ("lunch", "dinner", or "both"), prepTimeMinutes (number), cookTimeMinutes (number),
-ingredients (array of {raw: string, normalized: string, quantity: number|null, unit: string|null}), instructions (string).
+ingredients (array of {raw: string, normalized: string, quantity: number|null, unit: string|null}), instructions (string),
+hasRealInstructions (boolean — set to true ONLY if the text contains actual step-by-step cooking instructions. Set to false if the instructions are missing, empty, or just placeholder/redirect text like "visit my site", "link in bio", "full recipe on my page", "in my pro file", "check the link", or similar non-cooking content).
 ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no recipe name is explicitly stated, synthesize a short descriptive title from the main ingredients and cooking method (e.g. "Garlic Butter Salmon", "Crispy Tofu Stir Fry"). Never use "Imported Recipe" as the title.`}`;
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -107,6 +108,30 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
     });
     return JSON.parse(completion.choices[0].message.content || "{}");
   }
+
+  const PLACEHOLDER_PATTERNS = [
+    /\bvisit\s+(my|the|our)\s+(site|website|blog|page)\b/i,
+    /\blink\s+in\s+(bio|profile|description)\b/i,
+    /\b(in|on)\s+(my|the)\s+pro\s*(file)?\b/i,
+    /\bfull\s+(recipe|instructions?|details?)\s+(on|at|in)\s+(my|the|our)\b/i,
+    /\bcheck\s+(the|my)\s+(link|bio|profile|site|page)\b/i,
+    /\bfind\s+(the\s+)?(full\s+)?(recipe|instructions?)\s+(on|at|in)\b/i,
+    /\bsubscribe\s+(to|for)\s+(the\s+)?(full|complete)\s+(recipe|instructions?)\b/i,
+    /\bno\s+instructions?\s+found\b/i,
+  ];
+
+  function hasRealInstructions(data: any): boolean {
+    if (!data) return false;
+    if (data.hasRealInstructions === false) return false;
+    const instructions = (data.instructions || "").trim();
+    if (!instructions || instructions.length < 15) return false;
+    for (const pattern of PLACEHOLDER_PATTERNS) {
+      if (pattern.test(instructions)) return false;
+    }
+    return true;
+  }
+
+  const NO_INSTRUCTIONS_ERROR = "This recipe could not be imported — no cooking instructions were found.";
 
   function buildRecipeFromExtracted(data: any, overrides: any = {}) {
     const extractedIngredients = Array.isArray(data.ingredients) ? data.ingredients.map((i: any) => ({
@@ -154,6 +179,9 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
           }
           console.log(`TikTok oEmbed caption (${caption.length} chars): ${caption.slice(0, 80)}...`);
           const recipeData = await extractRecipeFromText(caption);
+          if (!hasRealInstructions(recipeData)) {
+            return res.status(422).json({ message: NO_INSTRUCTIONS_ERROR });
+          }
           const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData || {}, {
             sourceUrl: input.url,
             sourceName: 'tiktok.com',
@@ -202,6 +230,10 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
         console.error("AI Extraction failed:", e);
       }
 
+      if (!hasRealInstructions(recipeData)) {
+        return res.status(422).json({ message: NO_INSTRUCTIONS_ERROR });
+      }
+
       const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData || {}, {
         sourceUrl: input.url,
         sourceName,
@@ -220,6 +252,9 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
     try {
       const { text } = z.object({ text: z.string().min(10) }).parse(req.body);
       const recipeData = await extractRecipeFromText(text);
+      if (!hasRealInstructions(recipeData)) {
+        return res.status(422).json({ message: NO_INSTRUCTIONS_ERROR });
+      }
       const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData));
       console.log(`Imported from text: ${recipe.title}`);
       res.status(200).json(recipe);
