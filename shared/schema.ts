@@ -11,6 +11,7 @@ export const recipes = pgTable("recipes", {
   sourceUrl: text("source_url"),
   description: text("description"),
   mealType: text("meal_type").notNull().default("both"), // lunch, dinner, both
+  recipeType: text("recipe_type").notNull().default("full"), // full, simple, leftovers
   cuisine: text("cuisine"),
   proteinType: text("protein_type"),
   prepTimeMinutes: integer("prep_time_minutes"),

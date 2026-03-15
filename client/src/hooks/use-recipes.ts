@@ -124,6 +124,28 @@ export function useImportRecipe() {
   });
 }
 
+export function useImportText() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (text: string) => {
+      const res = await fetch('/api/recipes/import-text', {
+        method: 'POST',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to import recipe from text");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.recipes.list.path] });
+    },
+  });
+}
+
 export function useDiscoverRecipes() {
   const queryClient = useQueryClient();
   return useMutation({

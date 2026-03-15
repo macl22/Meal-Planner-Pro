@@ -45,8 +45,9 @@ Preferred communication style: Simple, everyday language.
 - **Express** with TypeScript, run via `tsx` in development
 - **Route registration** in `server/routes.ts`; all API path strings and Zod input schemas are defined in `shared/routes.ts` and imported by both client and server (type-safe API contract)
 - **Storage layer** (`server/storage.ts`): `DatabaseStorage` class implementing an `IStorage` interface. All DB access goes through this abstraction. This makes swapping the underlying DB straightforward.
-- **Recipe import**: Uses `cheerio` to scrape HTML from a pasted URL and extract recipe metadata; falls back to OpenAI for parsing/normalizing
+- **Recipe import**: Multiple modes — URL (cheerio scraping + AI), paste-text (AI extraction from captions/text), bulk URL (sequential with progress). TikTok/Instagram detected and given helpful error pointing to paste-text
 - **AI features**: OpenAI integration (via Replit AI Integrations) used for recipe discovery, generation, and extraction
+- **Simplified meal planning**: Plan generation picks max 3 "full" recipes/week; remaining dinner slots use "simple" assembly meals; lunches alternate between dinner leftovers and simple meals
 - **Duplicate detection**: Handled at the storage level using recipe title and URL
 
 ### Shared (`shared/`)
@@ -59,7 +60,7 @@ Preferred communication style: Simple, everyday language.
 - **Drizzle ORM** for type-safe queries; schema defined in `shared/schema.ts`
 - Migrations output to `./migrations/`; schema pushed with `drizzle-kit push`
 - **Tables**:
-  - `recipes`: Full recipe metadata, ingredients as JSONB array, approval flag (for discovered recipes), discovery score/reason
+  - `recipes`: Full recipe metadata, ingredients as JSONB array, approval flag (for discovered recipes), discovery score/reason, `recipeType` ('full'|'simple'|'leftovers')
   - `pantry_staples`: Normalized ingredient names with stock status
   - `weekly_plans`: Plan metadata (start date, lunch/dinner counts, servings)
   - `weekly_plan_meals`: Join table linking plans to recipes with per-meal overrides

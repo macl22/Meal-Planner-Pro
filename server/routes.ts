@@ -89,12 +89,57 @@ export async function registerRoutes(
     }
   });
 
+  // Shared AI extraction helper
+  async function extractRecipeFromText(text: string, title?: string): Promise<any> {
+    const prompt = `Extract recipe data from this text.
+Text: ${text.slice(0, 12000)}
+Return ONLY a JSON object with:
+title (string), description (string), mealType ("lunch", "dinner", or "both"), prepTimeMinutes (number), cookTimeMinutes (number),
+ingredients (array of {raw: string, normalized: string, quantity: number|null, unit: string|null}), instructions (string).
+If title is not found in the text, use: "${title || 'Imported Recipe'}"`;
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "You are a helpful assistant that extracts recipe data from text into clean JSON." },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" }
+    });
+    return JSON.parse(completion.choices[0].message.content || "{}");
+  }
+
+  function buildRecipeFromExtracted(data: any, overrides: any = {}) {
+    const extractedIngredients = Array.isArray(data.ingredients) ? data.ingredients.map((i: any) => ({
+      ingredient_name_raw: i.raw || (typeof i === 'string' ? i : "Ingredient"),
+      ingredient_name_normalized: i.normalized || i.raw || (typeof i === 'string' ? i : "Ingredient"),
+      quantity: typeof i.quantity === 'number' ? i.quantity : null,
+      unit: i.unit || null,
+      optional_boolean: false,
+      preparation_note: null
+    })) : [];
+    return {
+      title: data.title || overrides.title || "Imported Recipe",
+      description: data.description || "",
+      sourceType: "imported" as const,
+      ingredients: extractedIngredients,
+      instructions: data.instructions || "No instructions found.",
+      isApproved: true,
+      mealType: data.mealType || "both",
+      prepTimeMinutes: data.prepTimeMinutes || null,
+      cookTimeMinutes: data.cookTimeMinutes || null,
+      totalTimeMinutes: (data.prepTimeMinutes || 0) + (data.cookTimeMinutes || 0) || null,
+      ...overrides
+    };
+  }
+
   // Import recipe from URL
   app.post(api.recipes.importFromUrl.path, async (req, res) => {
     try {
       const input = api.recipes.importFromUrl.input.parse(req.body);
       console.log(`Attempting to import from: ${input.url}`);
       
+      const isSocial = input.url.includes('tiktok.com') || input.url.includes('instagram.com') || input.url.includes('reels');
+
       const response = await fetch(input.url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -104,78 +149,63 @@ export async function registerRoutes(
       });
 
       if (!response.ok) {
+        if (isSocial) {
+          return res.status(500).json({ message: "TikTok/Instagram blocks direct access. Copy the caption text and use 'Paste Recipe Text' instead." });
+        }
         throw new Error(`Failed to fetch URL: ${response.statusText}`);
       }
 
       const html = await response.text();
       const $ = cheerio.load(html);
-      
-      // Better cleaning: remove non-content elements
-      $('script, style, header, footer, nav, noscript, .ads, .sidebar, .comments, iframe').remove();
-      
-      // Try to find the recipe specific content first
-      const recipeContainer = $('.wprm-recipe-container, .recipe-content, .recipe, article').first();
-      const contentText = recipeContainer.length > 0 ? recipeContainer.text() : $('body').text();
-      const cleanedContent = contentText.replace(/\s\s+/g, ' ').trim().slice(0, 12000);
 
-      const pageTitle = $('title').text().split('|')[0].trim() || $('h1').first().text().trim() || "Imported Recipe";
       const sourceName = new URL(input.url).hostname;
-      
-      const prompt = `Extract recipe data from this text. 
-      Text: ${cleanedContent}
-      Return ONLY a JSON object with:
-      title (string), description (string), mealType ("lunch", "dinner", or "both"), prepTimeMinutes (number), cookTimeMinutes (number), 
-      ingredients (array of {raw: string, normalized: string, quantity: number|null, unit: string|null}), instructions (string).`;
-      
+      const pageTitle = $('title').text().split('|')[0].trim() || $('h1').first().text().trim() || "Imported Recipe";
+
+      let cleanedContent: string;
+      if (isSocial) {
+        // For social media, prioritize og:description (caption) which often has the recipe
+        const ogDesc = $('meta[property="og:description"]').attr('content') || $('meta[name="description"]').attr('content') || '';
+        const ogTitle = $('meta[property="og:title"]').attr('content') || pageTitle;
+        cleanedContent = `Title: ${ogTitle}\n\n${ogDesc}`;
+      } else {
+        // Regular sites: clean and extract body content
+        $('script, style, header, footer, nav, noscript, .ads, .sidebar, .comments, iframe').remove();
+        const recipeContainer = $('.wprm-recipe-container, .recipe-content, .recipe, article').first();
+        const contentText = recipeContainer.length > 0 ? recipeContainer.text() : $('body').text();
+        cleanedContent = contentText.replace(/\s\s+/g, ' ').trim().slice(0, 12000);
+      }
+
       let recipeData: any = null;
       try {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: "You are a helpful assistant that extracts recipe data from text into clean JSON." },
-            { role: "user", content: prompt }
-          ],
-          response_format: { type: "json_object" }
-        });
-        recipeData = JSON.parse(completion.choices[0].message.content || "{}");
+        recipeData = await extractRecipeFromText(cleanedContent, pageTitle);
       } catch (e) {
         console.error("AI Extraction failed:", e);
       }
 
-      const finalTitle = recipeData?.title || pageTitle || "Imported Recipe";
-      
-      let extractedIngredients: any[] = [];
-      if (recipeData && Array.isArray(recipeData.ingredients)) {
-        extractedIngredients = recipeData.ingredients.map((i: any) => ({
-          ingredient_name_raw: i.raw || (typeof i === 'string' ? i : "Ingredient"),
-          ingredient_name_normalized: i.normalized || i.raw || (typeof i === 'string' ? i : "Ingredient"),
-          quantity: typeof i.quantity === 'number' ? i.quantity : null,
-          unit: i.unit || null,
-          optional_boolean: false,
-          preparation_note: null
-        }));
-      }
-
-      const recipe = await storage.createRecipe({
-        title: finalTitle,
-        description: recipeData?.description || "",
+      const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData || {}, {
         sourceUrl: input.url,
         sourceName,
-        sourceType: "imported",
-        ingredients: extractedIngredients,
-        instructions: recipeData?.instructions || "No instructions found.",
-        isApproved: true,
-        mealType: recipeData?.mealType || "both",
-        prepTimeMinutes: recipeData?.prepTimeMinutes || null,
-        cookTimeMinutes: recipeData?.cookTimeMinutes || null,
-        totalTimeMinutes: (recipeData?.prepTimeMinutes || 0) + (recipeData?.cookTimeMinutes || 0) || null
-      });
+      }));
 
       console.log(`Successfully imported: ${recipe.title}`);
       res.status(200).json(recipe);
     } catch (err) {
       console.error("Import error details:", err);
       res.status(500).json({ message: "Failed to import recipe. The site might be blocking access or content is too complex." });
+    }
+  });
+
+  // Import recipe from pasted text (TikTok captions, recipe text, etc.)
+  app.post('/api/recipes/import-text', async (req, res) => {
+    try {
+      const { text } = z.object({ text: z.string().min(10) }).parse(req.body);
+      const recipeData = await extractRecipeFromText(text);
+      const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData));
+      console.log(`Imported from text: ${recipe.title}`);
+      res.status(200).json(recipe);
+    } catch (err) {
+      console.error("Text import error:", err);
+      res.status(500).json({ message: "Failed to extract recipe from text." });
     }
   });
 
@@ -376,8 +406,6 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
         return res.status(400).json({ message: "You need to add some recipes first!" });
       }
 
-      // Instead of always creating a new plan, we can reuse or replace
-      // For now, let's just make sure the generation is robust
       const plan = await storage.createWeeklyPlan({
         startDate: new Date(),
         lunchesCount: input.lunchesCount,
@@ -385,45 +413,46 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
         servingsPerMeal: input.servingsPerMeal
       });
 
-      const usedInPlan: number[] = [];
+      // Categorize recipes by type
+      const fullRecipes = allRecipes.filter(r => !r.recipeType || r.recipeType === 'full');
+      const simpleRecipes = allRecipes.filter(r => r.recipeType === 'simple');
+      const leftoverRecipe = allRecipes.find(r => r.recipeType === 'leftovers' || r.title === 'Leftovers');
+      const fallbackRecipe = allRecipes[0]; // Always have at least one
 
-      const pickRecipe = (type: string) => {
-        let suitable = allRecipes.filter(r => 
-          (r.mealType === type || r.mealType === 'both') && 
-          !usedInPlan.includes(r.id) &&
-          r.title !== "Leftovers"
-        );
-        
-        if (suitable.length === 0) {
-          suitable = allRecipes.filter(r => 
-            (r.mealType === type || r.mealType === 'both') && 
-            r.title !== "Leftovers"
-          );
-        }
-        
-        const picked = suitable.length > 0 ? suitable[Math.floor(Math.random() * suitable.length)] : allRecipes[0];
-        if (picked.id !== -1 && picked.title !== "Leftovers") usedInPlan.push(picked.id);
-        return picked;
-      };
+      // Shuffle helpers
+      const shuffle = <T>(arr: T[]): T[] => [...arr].sort(() => Math.random() - 0.5);
 
-      const leftoverRecipe = allRecipes.find(r => r.title === "Leftovers");
+      // Build dinner list: max 3 proper recipes, rest are simple or leftovers
+      const MAX_PROPER_DINNERS = 3;
+      const properDinnerCount = Math.min(MAX_PROPER_DINNERS, input.dinnersCount);
+      const shuffledFull = shuffle(fullRecipes.filter(r => r.mealType === 'dinner' || r.mealType === 'both'));
+      const pickedFull = shuffledFull.slice(0, properDinnerCount);
 
-      const planLunches = [];
-      const planDinners = [];
-
+      const planDinners: (typeof allRecipes[0])[] = [];
+      let fullIdx = 0;
       for (let i = 0; i < input.dinnersCount; i++) {
-        if (i % 2 === 1 && leftoverRecipe) {
-          planDinners.push(leftoverRecipe);
+        if (fullIdx < pickedFull.length) {
+          planDinners.push(pickedFull[fullIdx++]);
         } else {
-          planDinners.push(pickRecipe('dinner'));
+          // Fill with simple meals, or fallback to full recipe if no simple available
+          const shuffledSimple = shuffle(simpleRecipes);
+          const simpleCandidate = shuffledSimple.find(r => !planDinners.includes(r));
+          planDinners.push(simpleCandidate || shuffle(fullRecipes.filter(r => !planDinners.includes(r)))[0] || fallbackRecipe);
         }
       }
 
+      // Build lunch list: alternate leftovers from dinner / simple meals
+      const planLunches: (typeof allRecipes[0])[] = [];
       for (let i = 0; i < input.lunchesCount; i++) {
-        if (i % 2 === 1 && leftoverRecipe) {
-          planLunches.push(leftoverRecipe);
+        const dinnerForLeftover = planDinners[i % planDinners.length];
+        if (dinnerForLeftover && leftoverRecipe) {
+          // Every other lunch is "leftovers" based on a prior dinner
+          planLunches.push(i % 2 === 0 ? dinnerForLeftover : (leftoverRecipe));
         } else {
-          planLunches.push(pickRecipe('lunch'));
+          // fallback: pick a suitable lunch recipe
+          const lunchRecipes = allRecipes.filter(r => r.mealType === 'lunch' || r.mealType === 'both');
+          const suitable = shuffle(lunchRecipes).find(r => !planLunches.includes(r));
+          planLunches.push(suitable || fallbackRecipe);
         }
       }
 
@@ -509,67 +538,59 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       if (!plan) return res.status(404).json({ message: 'Weekly plan not found' });
 
       const staples = await storage.getPantryStaples();
-      const inStockStaples = staples.filter(s => s.currentlyInStock).map(s => s.ingredientNameNormalized.toLowerCase());
-      const outOfStockStaples = staples.filter(s => !s.currentlyInStock);
+      // Fuzzy matching: a staple keyword matches if the ingredient name contains it or vice versa
+      const stapleKeywords = staples.map(s => s.ingredientNameNormalized.toLowerCase());
+      const isStapleItem = (name: string): boolean => {
+        const lower = name.toLowerCase();
+        return stapleKeywords.some(k => lower.includes(k) || k.includes(lower.split(' ')[0]));
+      };
 
-      const list: Record<string, { item: string, raw: string }[]> = {
+      const list: Record<string, { item: string, raw: string, isStaple: boolean }[]> = {
         "Produce": [],
         "Meat & Seafood": [],
         "Dairy": [],
         "Pantry": [],
-        "Other": [],
-        "Check Pantry": []
+        "Other": []
       };
 
-      // Add out of stock staples to Pantry
-      outOfStockStaples.forEach(staple => {
-        list["Pantry"].push({
-          item: staple.ingredientNameNormalized,
-          raw: `${staple.ingredientNameNormalized} (from staples)`
-        });
-      });
+      const seenItems = new Set<string>();
 
-      // Add all "always have" staples to Check Pantry
-      staples.filter(s => s.alwaysHave).forEach(staple => {
-        list["Check Pantry"].push({
-          item: staple.ingredientNameNormalized,
-          raw: staple.ingredientNameNormalized
-        });
-      });
-
-      // Collect ingredients from meals
+      // Collect ALL ingredients from meals (deduplicate)
       plan.meals.forEach(meal => {
         const recipe = meal.recipe;
-        if (recipe && Array.isArray(recipe.ingredients)) {
-          recipe.ingredients.forEach((ing: any) => {
-            const name = ing.ingredient_name_normalized || ing.ingredient_name_raw || "";
-            
-            // Skip if it's an in-stock staple
-            if (inStockStaples.includes(name.toLowerCase())) {
-              return;
-            }
+        if (!recipe || !Array.isArray(recipe.ingredients)) return;
+        // Skip Leftovers recipe placeholder
+        if (recipe.title === 'Leftovers') return;
 
-            // Simple categorization based on keywords
-            let category = "Other";
-            const lowerName = name.toLowerCase();
-            
-            if (lowerName.match(/apple|banana|onion|garlic|tomato|lettuce|carrot|spinach|potato|pepper|lemon|lime/)) {
-              category = "Produce";
-            } else if (lowerName.match(/chicken|beef|pork|fish|salmon|shrimp|bacon/)) {
-              category = "Meat & Seafood";
-            } else if (lowerName.match(/milk|cheese|butter|cream|yogurt|egg/)) {
-              category = "Dairy";
-            } else if (lowerName.match(/flour|sugar|salt|oil|rice|pasta|bean|sauce|spice|can/)) {
-              category = "Pantry";
-            }
+        recipe.ingredients.forEach((ing: any) => {
+          const name = (ing.ingredient_name_normalized || ing.ingredient_name_raw || "").trim();
+          if (!name) return;
+          const key = name.toLowerCase();
+          if (seenItems.has(key)) return;
+          seenItems.add(key);
 
-            list[category].push({
-              item: name,
-              raw: ing.ingredient_name_raw || name
-            });
+          const lowerName = key;
+          let category = "Other";
+          if (lowerName.match(/apple|banana|onion|garlic|tomato|lettuce|carrot|spinach|potato|pepper|lemon|lime|mushroom|zucchini|cucumber|celery|corn|cabbage|scallion|ginger|herb|basil|cilantro|parsley/)) {
+            category = "Produce";
+          } else if (lowerName.match(/chicken|beef|pork|fish|salmon|shrimp|bacon|lamb|turkey|tuna|anchovy|sausage|steak|ground|meat/)) {
+            category = "Meat & Seafood";
+          } else if (lowerName.match(/milk|cheese|butter|cream|yogurt|egg|mozzarella|parmesan|cheddar|feta/)) {
+            category = "Dairy";
+          } else if (lowerName.match(/flour|sugar|salt|oil|rice|pasta|bean|sauce|spice|can|stock|broth|vinegar|mustard|honey|noodle|bread|crumb|baking|cumin|paprika|chili|cinnamon|turmeric|curry|coriander|soy|miso|tahini/)) {
+            category = "Pantry";
+          }
+
+          list[category].push({
+            item: name,
+            raw: ing.ingredient_name_raw || name,
+            isStaple: isStapleItem(name)
           });
-        }
+        });
       });
+
+      // Remove empty categories
+      Object.keys(list).forEach(k => { if (list[k].length === 0) delete list[k]; });
 
       res.json(list);
     } catch (err) {
@@ -599,58 +620,99 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
 async function seedDatabase() {
   try {
     const existingRecipes = await storage.getRecipes();
-    const hasLeftovers = existingRecipes.some(r => r.title === "Leftovers");
-    
-    if (!hasLeftovers) {
+
+    // Seed Leftovers placeholder
+    if (!existingRecipes.some(r => r.title === "Leftovers")) {
       await storage.createRecipe({
         title: "Leftovers",
-        description: "Enjoy leftovers from a previous meal.",
+        description: "Reheat leftovers from last night's dinner.",
         sourceType: "manual",
         mealType: "both",
+        recipeType: "leftovers",
         ingredients: [],
         instructions: "Reheat and enjoy!",
         isApproved: true
       });
+    } else {
+      // Backfill recipeType for existing Leftovers recipe
+      const lr = existingRecipes.find(r => r.title === "Leftovers");
+      if (lr && (!lr.recipeType || lr.recipeType === 'full')) {
+        await storage.updateRecipe(lr.id, { recipeType: 'leftovers' });
+      }
     }
 
-    const hasSimple = existingRecipes.some(r => r.title.includes("Simple Roasted Chicken"));
-    if (!hasSimple) {
-      await storage.createRecipe({
-        title: "Simple Roasted Chicken & Sweet Potatoes",
-        description: "A healthy, easy meal with minimal cleanup.",
-        sourceType: "manual",
-        mealType: "dinner",
+    // Seed simple assembly meals (no detailed recipe needed)
+    const simpleMeals = [
+      {
+        title: "Chicken Thighs + Sweet Potato + Broccoli",
+        description: "Sheet pan dinner — season, roast, done.",
         cuisine: "American",
-        prepTimeMinutes: 10,
+        prepTimeMinutes: 5,
         cookTimeMinutes: 40,
-        defaultServings: 2,
         ingredients: [
           { ingredient_name_raw: "4 chicken thighs", ingredient_name_normalized: "chicken thighs", quantity: 4, unit: "pcs", optional_boolean: false, preparation_note: null },
           { ingredient_name_raw: "2 sweet potatoes", ingredient_name_normalized: "sweet potatoes", quantity: 2, unit: "large", optional_boolean: false, preparation_note: "cubed" },
           { ingredient_name_raw: "1 head broccoli", ingredient_name_normalized: "broccoli", quantity: 1, unit: "head", optional_boolean: false, preparation_note: "florets" }
         ],
-        instructions: "1. Toss chicken and veggies in olive oil, salt, and pepper.\n2. Roast at 400°F for 35-40 minutes.",
-        isApproved: true
-      });
+        instructions: "Toss everything in olive oil, salt, and pepper. Roast at 425°F for 35-40 min.",
+      },
+      {
+        title: "Salmon + Asparagus + White Rice",
+        description: "Quick weeknight protein with simple sides.",
+        cuisine: "American",
+        prepTimeMinutes: 5,
+        cookTimeMinutes: 20,
+        ingredients: [
+          { ingredient_name_raw: "2 salmon fillets", ingredient_name_normalized: "salmon", quantity: 2, unit: "fillets", optional_boolean: false, preparation_note: null },
+          { ingredient_name_raw: "1 bunch asparagus", ingredient_name_normalized: "asparagus", quantity: 1, unit: "bunch", optional_boolean: false, preparation_note: "trimmed" },
+          { ingredient_name_raw: "1 cup white rice", ingredient_name_normalized: "white rice", quantity: 1, unit: "cup", optional_boolean: false, preparation_note: null }
+        ],
+        instructions: "Cook rice. Pan-sear salmon 3-4 min per side. Roast asparagus at 400°F for 12 min.",
+      },
+      {
+        title: "Ground Beef + Roasted Potatoes + Green Beans",
+        description: "Hearty and filling, minimal prep.",
+        cuisine: "American",
+        prepTimeMinutes: 10,
+        cookTimeMinutes: 30,
+        ingredients: [
+          { ingredient_name_raw: "1 lb ground beef", ingredient_name_normalized: "ground beef", quantity: 1, unit: "lb", optional_boolean: false, preparation_note: null },
+          { ingredient_name_raw: "3 Yukon gold potatoes", ingredient_name_normalized: "potatoes", quantity: 3, unit: "medium", optional_boolean: false, preparation_note: "cubed" },
+          { ingredient_name_raw: "2 cups green beans", ingredient_name_normalized: "green beans", quantity: 2, unit: "cups", optional_boolean: false, preparation_note: "trimmed" }
+        ],
+        instructions: "Roast potatoes at 425°F for 25 min. Cook beef in pan with garlic, salt, and pepper. Steam green beans.",
+      },
+    ];
+
+    for (const meal of simpleMeals) {
+      if (!existingRecipes.some(r => r.title === meal.title)) {
+        await storage.createRecipe({
+          ...meal,
+          sourceType: "manual",
+          mealType: "dinner",
+          recipeType: "simple",
+          defaultServings: 2,
+          isApproved: true,
+          totalTimeMinutes: (meal.prepTimeMinutes || 0) + (meal.cookTimeMinutes || 0)
+        });
+      }
     }
 
+    // Ensure essential pantry staples always exist
     const existingStaples = await storage.getPantryStaples();
-    if (existingStaples.length <= 2) {
-      const commonStaples = [
-        "Milk", "Eggs", "Butter", "Flour", "Sugar", 
-        "Rice", "Pasta", "Onions", "Garlic", "Potatoes",
-        "Chicken Broth", "Soy Sauce", "Black Pepper", "Honey"
-      ];
-
-      for (const name of commonStaples) {
-        const normalized = name.toLowerCase();
-        if (!existingStaples.find(s => s.ingredientNameNormalized === normalized)) {
-          await storage.createPantryStaple({
-            ingredientNameNormalized: normalized,
-            alwaysHave: true,
-            currentlyInStock: true
-          });
-        }
+    const essentialStaples = [
+      "salt", "pepper", "black pepper", "olive oil", "vegetable oil",
+      "sugar", "soy sauce", "butter", "garlic", "onion",
+      "flour", "rice", "chicken broth", "honey", "vinegar",
+      "cumin", "paprika", "chili flakes", "eggs", "milk"
+    ];
+    for (const name of essentialStaples) {
+      if (!existingStaples.find(s => s.ingredientNameNormalized === name)) {
+        await storage.createPantryStaple({
+          ingredientNameNormalized: name,
+          alwaysHave: true,
+          currentlyInStock: true
+        }).catch(() => {}); // Ignore unique constraint errors
       }
     }
   } catch (e) {

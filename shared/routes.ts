@@ -81,6 +81,15 @@ export const api = {
         500: errorSchemas.internal,
       }
     },
+    importText: {
+      method: 'POST' as const,
+      path: '/api/recipes/import-text' as const,
+      input: z.object({ text: z.string().min(10) }),
+      responses: {
+        200: z.custom<typeof recipes.$inferSelect>(),
+        500: errorSchemas.internal,
+      }
+    },
     discover: {
       method: 'POST' as const,
       path: '/api/recipes/discover' as const,

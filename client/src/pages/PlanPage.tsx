@@ -4,7 +4,7 @@ import { useDiscoverRecipes, useUpdateRecipe, useDeleteRecipe } from "@/hooks/us
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { format, parseISO } from "date-fns";
-import { Utensils, RefreshCw, Lock, LockOpen, ShoppingCart, Plus, Loader2, Trash2, Sparkles, Check, X, Clock, Star } from "lucide-react";
+import { Utensils, RefreshCw, Lock, LockOpen, ShoppingCart, Plus, Loader2, Trash2, Sparkles, Check, X, Clock, Star, Repeat2, Zap } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -108,13 +108,15 @@ function PlanViewer({ planId }: { planId: number }) {
     return acc;
   }, {});
 
+  const typeLabel = (t: string) => t === 'lunch' ? 'Lunches' : 'Dinners';
+
   return (
     <div className="grid gap-6 sm:grid-cols-2">
       {['dinner', 'lunch'].map((type) => (
         groupedMeals?.[type]?.length > 0 && (
           <div key={type} className="space-y-4">
-            <h3 className="text-xl font-bold capitalize font-display flex items-center gap-2">
-              {type}s <span className="bg-muted text-muted-foreground text-xs px-2 py-1 rounded-full">{groupedMeals[type].length}</span>
+            <h3 className="text-xl font-bold font-display flex items-center gap-2">
+              {typeLabel(type)} <span className="bg-muted text-muted-foreground text-xs px-2 py-1 rounded-full">{groupedMeals[type].length}</span>
             </h3>
             <div className="space-y-4">
               {groupedMeals[type].map((meal: any) => (
@@ -141,24 +143,45 @@ function MealCard({ meal }: { meal: any }) {
     updateMutation.mutate({ id: meal.id, updates: { isLocked: !meal.isLocked } });
   };
 
+  const recipeType = meal.recipe.recipeType || 'full';
+  const isLeftovers = recipeType === 'leftovers';
+  const isSimple = recipeType === 'simple';
+
   return (
     <motion.div 
       layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className={`
-        relative bg-card rounded-2xl p-5 border shadow-sm group
-        ${meal.isLocked ? 'border-primary/30 bg-primary/5' : 'border-border hover:shadow-md transition-shadow'}
+        relative rounded-2xl p-5 border shadow-sm group
+        ${meal.isLocked ? 'border-primary/30 bg-primary/5' : 
+          isLeftovers ? 'border-border/50 bg-muted/30 hover:shadow-md transition-shadow' :
+          isSimple ? 'border-green-500/20 bg-green-500/5 hover:shadow-md transition-shadow' :
+          'bg-card border-border hover:shadow-md transition-shadow'}
       `}
     >
+      {(isLeftovers || isSimple) && (
+        <div className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full mb-3 ${
+          isLeftovers ? 'bg-muted text-muted-foreground' : 'bg-green-500/15 text-green-700 dark:text-green-400'
+        }`}>
+          {isLeftovers ? <Repeat2 className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
+          {isLeftovers ? 'Leftovers' : 'Easy Assembly'}
+        </div>
+      )}
       <div className="flex gap-4">
         {meal.recipe.imageUrl ? (
           <div className="w-24 h-24 rounded-xl overflow-hidden shrink-0 bg-muted">
             <img src={meal.recipe.imageUrl} alt={meal.recipe.title} className="w-full h-full object-cover" />
           </div>
         ) : (
-          <div className="w-24 h-24 rounded-xl bg-secondary text-secondary-foreground flex items-center justify-center shrink-0">
-            <Utensils className="w-8 h-8 opacity-50" />
+          <div className={`w-24 h-24 rounded-xl flex items-center justify-center shrink-0 ${
+            isLeftovers ? 'bg-muted/50 text-muted-foreground' :
+            isSimple ? 'bg-green-500/10 text-green-600' :
+            'bg-secondary text-secondary-foreground'
+          }`}>
+            {isLeftovers ? <Repeat2 className="w-8 h-8 opacity-40" /> : 
+             isSimple ? <Zap className="w-8 h-8 opacity-60" /> : 
+             <Utensils className="w-8 h-8 opacity-50" />}
           </div>
         )}
         
