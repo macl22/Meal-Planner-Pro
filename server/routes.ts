@@ -137,9 +137,41 @@ If title is not found in the text, use: "${title || 'Imported Recipe'}"`;
     try {
       const input = api.recipes.importFromUrl.input.parse(req.body);
       console.log(`Attempting to import from: ${input.url}`);
-      
-      const isSocial = input.url.includes('tiktok.com') || input.url.includes('instagram.com') || input.url.includes('reels');
 
+      const isTikTok = input.url.includes('tiktok.com');
+      const isInstagram = input.url.includes('instagram.com') || input.url.includes('reels');
+
+      // ── TikTok: use the public oEmbed API to get the caption ──────
+      if (isTikTok) {
+        try {
+          const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(input.url)}`;
+          const oembedRes = await fetch(oembedUrl);
+          if (!oembedRes.ok) throw new Error(`oEmbed returned ${oembedRes.status}`);
+          const oembedData = await oembedRes.json() as { title?: string; author_name?: string };
+          const caption = (oembedData.title || '').trim();
+          if (caption.length < 20) {
+            return res.status(400).json({ message: "Couldn't read a recipe from this TikTok caption — it may be too short. Try copying the full caption and using 'Paste Text' instead." });
+          }
+          console.log(`TikTok oEmbed caption (${caption.length} chars): ${caption.slice(0, 80)}...`);
+          const recipeData = await extractRecipeFromText(caption);
+          const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData || {}, {
+            sourceUrl: input.url,
+            sourceName: 'tiktok.com',
+          }));
+          console.log(`Successfully imported from TikTok: ${recipe.title}`);
+          return res.status(200).json(recipe);
+        } catch (tikErr: any) {
+          console.error("TikTok oEmbed error:", tikErr);
+          return res.status(500).json({ message: "Couldn't read the caption for this TikTok — try copying the caption and using 'Paste Text' instead." });
+        }
+      }
+
+      // ── Instagram: still unsupported (requires app token) ─────────
+      if (isInstagram) {
+        return res.status(400).json({ message: "Instagram blocks automated access. Copy the caption text and use 'Paste Text' instead." });
+      }
+
+      // ── Regular URLs: fetch HTML and extract via cheerio + AI ─────
       const response = await fetch(input.url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -149,9 +181,6 @@ If title is not found in the text, use: "${title || 'Imported Recipe'}"`;
       });
 
       if (!response.ok) {
-        if (isSocial) {
-          return res.status(500).json({ message: "TikTok/Instagram blocks direct access. Copy the caption text and use 'Paste Recipe Text' instead." });
-        }
         throw new Error(`Failed to fetch URL: ${response.statusText}`);
       }
 
@@ -161,19 +190,10 @@ If title is not found in the text, use: "${title || 'Imported Recipe'}"`;
       const sourceName = new URL(input.url).hostname;
       const pageTitle = $('title').text().split('|')[0].trim() || $('h1').first().text().trim() || "Imported Recipe";
 
-      let cleanedContent: string;
-      if (isSocial) {
-        // For social media, prioritize og:description (caption) which often has the recipe
-        const ogDesc = $('meta[property="og:description"]').attr('content') || $('meta[name="description"]').attr('content') || '';
-        const ogTitle = $('meta[property="og:title"]').attr('content') || pageTitle;
-        cleanedContent = `Title: ${ogTitle}\n\n${ogDesc}`;
-      } else {
-        // Regular sites: clean and extract body content
-        $('script, style, header, footer, nav, noscript, .ads, .sidebar, .comments, iframe').remove();
-        const recipeContainer = $('.wprm-recipe-container, .recipe-content, .recipe, article').first();
-        const contentText = recipeContainer.length > 0 ? recipeContainer.text() : $('body').text();
-        cleanedContent = contentText.replace(/\s\s+/g, ' ').trim().slice(0, 12000);
-      }
+      $('script, style, header, footer, nav, noscript, .ads, .sidebar, .comments, iframe').remove();
+      const recipeContainer = $('.wprm-recipe-container, .recipe-content, .recipe, article').first();
+      const contentText = recipeContainer.length > 0 ? recipeContainer.text() : $('body').text();
+      const cleanedContent = contentText.replace(/\s\s+/g, ' ').trim().slice(0, 12000);
 
       let recipeData: any = null;
       try {

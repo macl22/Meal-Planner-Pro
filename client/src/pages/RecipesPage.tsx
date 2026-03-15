@@ -151,7 +151,7 @@ function UrlImport() {
           {importMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Import'}
         </button>
       </div>
-      <p className="text-xs text-muted-foreground mt-2">Works with NYT Cooking, Seriouseats, Bon Appétit, and most recipe sites.</p>
+      <p className="text-xs text-muted-foreground mt-2">Works with NYT Cooking, TikTok, Seriouseats, Bon Appétit, and most recipe sites.</p>
     </div>
   );
 }
@@ -235,7 +235,7 @@ function BulkImport() {
       <textarea
         value={urls}
         onChange={(e) => setUrls(e.target.value)}
-        placeholder={"One URL per line:\nhttps://cooking.nytimes.com/recipes/...\nhttps://www.seriouseats.com/...\nhttps://www.bonappetit.com/..."}
+        placeholder={"One URL per line:\nhttps://cooking.nytimes.com/recipes/...\nhttps://www.tiktok.com/@creator/video/...\nhttps://www.seriouseats.com/..."}
         data-testid="input-bulk-urls"
         rows={5}
         className="w-full bg-background border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 px-4 py-3 rounded-xl transition-all text-sm font-mono resize-none"

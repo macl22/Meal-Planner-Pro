@@ -114,7 +114,10 @@ export function useImportRecipe() {
         body: JSON.stringify({ url }),
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to import recipe");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to import recipe");
+      }
       const data = await res.json();
       return safeParse(api.recipes.importFromUrl.responses[200], data);
     },
