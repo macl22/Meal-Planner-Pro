@@ -158,6 +158,7 @@ function MealCard({ meal, onPickRecipe }: { meal: any; onPickRecipe: () => void 
   const isSimple = recipeType === 'simple';
 
   const TypeIcon = isLeftovers ? Repeat2 : isSimple ? Zap : Utensils;
+  const totalTime = meal.recipe.totalTimeMinutes || ((meal.recipe.prepTimeMinutes || 0) + (meal.recipe.cookTimeMinutes || 0));
 
   return (
     <motion.div 
@@ -174,27 +175,24 @@ function MealCard({ meal, onPickRecipe }: { meal: any; onPickRecipe: () => void 
       `}
       onClick={() => !meal.isLocked && onPickRecipe()}
     >
-      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
         isLeftovers ? 'bg-muted text-muted-foreground' :
         isSimple ? 'bg-green-500/15 text-green-600' :
         'bg-primary/10 text-primary'
       }`}>
-        <TypeIcon className="w-4 h-4" />
+        <TypeIcon className="w-3.5 h-3.5" />
       </div>
 
-      <div className="flex-1 min-w-0">
-        <h4 className="font-semibold text-sm leading-tight truncate" data-testid={`meal-title-${meal.id}`}>
-          {meal.recipe.title}
-        </h4>
-        {!isLeftovers && (meal.recipe.totalTimeMinutes || meal.recipe.prepTimeMinutes || meal.recipe.cookTimeMinutes) && (
-          <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-            <Clock className="w-3 h-3" />
-            {meal.recipe.totalTimeMinutes || ((meal.recipe.prepTimeMinutes || 0) + (meal.recipe.cookTimeMinutes || 0))}m
-          </span>
-        )}
-      </div>
+      <h4 className="flex-1 min-w-0 font-semibold text-sm leading-none truncate" data-testid={`meal-title-${meal.id}`}>
+        {meal.recipe.title}
+      </h4>
 
       <div className="flex items-center gap-1 shrink-0">
+        {!isLeftovers && totalTime > 0 && (
+          <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-md whitespace-nowrap">
+            {totalTime}m
+          </span>
+        )}
         <button 
           onClick={toggleLock}
           data-testid={`meal-lock-${meal.id}`}
@@ -233,7 +231,7 @@ function RecipePickerSheet({ mealId, onClose }: { mealId: number; onClose: () =>
   const [search, setSearch] = useState("");
 
   const filtered = (recipes || []).filter((r: any) =>
-    r.title !== 'Leftovers' &&
+    r.recipeType !== 'leftovers' &&
     r.title.toLowerCase().includes(search.toLowerCase())
   );
 
