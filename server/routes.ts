@@ -474,7 +474,7 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       const fullRecipes = allRecipes.filter(r => (!r.recipeType || r.recipeType === 'full') && !isBadTitle(r));
       const simpleRecipes = allRecipes.filter(r => r.recipeType === 'simple' && !isBadTitle(r));
       const leftoverRecipe = allRecipes.find(r => r.recipeType === 'leftovers' || r.title === 'Leftovers');
-      const fallbackRecipe = allRecipes[0];
+      const fallbackRecipe = allRecipes.find(r => !isBadTitle(r) && r.recipeType !== 'leftovers') || allRecipes[0];
 
       // ── Helpers: shuffle & anti-repetition ──────────────────────────
       const shuffle = <T>(arr: T[]): T[] => [...arr].sort(() => Math.random() - 0.5);
