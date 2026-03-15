@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useWeeklyPlans, useWeeklyPlan, useGeneratePlan, useRegenerateMeal, useUpdateMeal, useDeleteWeeklyPlan } from "@/hooks/use-weekly-plans";
-import { useDiscoverRecipes, useUpdateRecipe, useDeleteRecipe } from "@/hooks/use-recipes";
+import { useDiscoverRecipes, useUpdateRecipe, useDeleteRecipe, useRecipes } from "@/hooks/use-recipes";
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { format, parseISO } from "date-fns";
-import { Utensils, RefreshCw, Lock, LockOpen, ShoppingCart, Plus, Loader2, Trash2, Sparkles, Check, X, Clock, Star, Repeat2, Zap } from "lucide-react";
+import { Utensils, RefreshCw, Lock, LockOpen, ShoppingCart, Plus, Loader2, Trash2, Sparkles, Check, X, Clock, Star, Repeat2, Zap, Search, List } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -95,13 +95,11 @@ export default function PlanPage() {
 
 function PlanViewer({ planId }: { planId: number }) {
   const { data: plan, isLoading } = useWeeklyPlan(planId);
+  const [pickingMealId, setPickingMealId] = useState<number | null>(null);
   
   if (isLoading || !plan) return <LoadingState />;
 
-  // Group meals by date
   const groupedMeals = plan.meals?.reduce((acc: any, meal: any) => {
-    const dateStr = format(parseISO(plan.startDate), 'yyyy-MM-dd'); // Simplification for demo
-    // In a real app, meals would have specific dates assigned. We'll group by ID for now to show layout
     const group = meal.mealType;
     if (!acc[group]) acc[group] = [];
     acc[group].push(meal);
@@ -111,35 +109,47 @@ function PlanViewer({ planId }: { planId: number }) {
   const typeLabel = (t: string) => t === 'lunch' ? 'Lunches' : 'Dinners';
 
   return (
-    <div className="grid gap-6 sm:grid-cols-2">
-      {['dinner', 'lunch'].map((type) => (
-        groupedMeals?.[type]?.length > 0 && (
-          <div key={type} className="space-y-4">
-            <h3 className="text-xl font-bold font-display flex items-center gap-2">
-              {typeLabel(type)} <span className="bg-muted text-muted-foreground text-xs px-2 py-1 rounded-full">{groupedMeals[type].length}</span>
-            </h3>
-            <div className="space-y-4">
-              {groupedMeals[type].map((meal: any) => (
-                <MealCard key={meal.id} meal={meal} />
-              ))}
+    <>
+      <div className="grid gap-6 sm:grid-cols-2">
+        {['dinner', 'lunch'].map((type) => (
+          groupedMeals?.[type]?.length > 0 && (
+            <div key={type} className="space-y-2">
+              <h3 className="text-lg font-bold font-display flex items-center gap-2 mb-1">
+                {typeLabel(type)} <span className="bg-muted text-muted-foreground text-xs px-2 py-0.5 rounded-full">{groupedMeals[type].length}</span>
+              </h3>
+              <div className="space-y-2">
+                {groupedMeals[type].map((meal: any) => (
+                  <MealCard key={meal.id} meal={meal} onPickRecipe={() => setPickingMealId(meal.id)} />
+                ))}
+              </div>
             </div>
-          </div>
-        )
-      ))}
-    </div>
+          )
+        ))}
+      </div>
+      <AnimatePresence>
+        {pickingMealId !== null && (
+          <RecipePickerSheet
+            mealId={pickingMealId}
+            onClose={() => setPickingMealId(null)}
+          />
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 
-function MealCard({ meal }: { meal: any }) {
+function MealCard({ meal, onPickRecipe }: { meal: any; onPickRecipe: () => void }) {
   const regenerateMutation = useRegenerateMeal();
   const updateMutation = useUpdateMeal();
 
-  const handleSwap = () => {
+  const handleShuffle = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (meal.isLocked) return;
     regenerateMutation.mutate(meal.id);
   };
 
-  const toggleLock = () => {
+  const toggleLock = (e: React.MouseEvent) => {
+    e.stopPropagation();
     updateMutation.mutate({ id: meal.id, updates: { isLocked: !meal.isLocked } });
   };
 
@@ -147,78 +157,174 @@ function MealCard({ meal }: { meal: any }) {
   const isLeftovers = recipeType === 'leftovers';
   const isSimple = recipeType === 'simple';
 
+  const TypeIcon = isLeftovers ? Repeat2 : isSimple ? Zap : Utensils;
+
   return (
     <motion.div 
       layout
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
+      data-testid={`meal-card-${meal.id}`}
       className={`
-        relative rounded-2xl p-5 border shadow-sm group
+        flex items-center gap-3 rounded-xl px-3 py-3 border transition-all cursor-pointer
         ${meal.isLocked ? 'border-primary/30 bg-primary/5' : 
-          isLeftovers ? 'border-border/50 bg-muted/30 hover:shadow-md transition-shadow' :
-          isSimple ? 'border-green-500/20 bg-green-500/5 hover:shadow-md transition-shadow' :
-          'bg-card border-border hover:shadow-md transition-shadow'}
+          isLeftovers ? 'border-border/50 bg-muted/30' :
+          isSimple ? 'border-green-500/20 bg-green-500/5' :
+          'bg-card border-border hover:bg-muted/30'}
       `}
+      onClick={() => !meal.isLocked && onPickRecipe()}
     >
-      {(isLeftovers || isSimple) && (
-        <div className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full mb-3 ${
-          isLeftovers ? 'bg-muted text-muted-foreground' : 'bg-green-500/15 text-green-700 dark:text-green-400'
-        }`}>
-          {isLeftovers ? <Repeat2 className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
-          {isLeftovers ? 'Leftovers' : 'Easy Assembly'}
-        </div>
-      )}
-      <div className="flex gap-4">
-        {meal.recipe.imageUrl ? (
-          <div className="w-24 h-24 rounded-xl overflow-hidden shrink-0 bg-muted">
-            <img src={meal.recipe.imageUrl} alt={meal.recipe.title} className="w-full h-full object-cover" />
-          </div>
-        ) : (
-          <div className={`w-24 h-24 rounded-xl flex items-center justify-center shrink-0 ${
-            isLeftovers ? 'bg-muted/50 text-muted-foreground' :
-            isSimple ? 'bg-green-500/10 text-green-600' :
-            'bg-secondary text-secondary-foreground'
-          }`}>
-            {isLeftovers ? <Repeat2 className="w-8 h-8 opacity-40" /> : 
-             isSimple ? <Zap className="w-8 h-8 opacity-60" /> : 
-             <Utensils className="w-8 h-8 opacity-50" />}
-          </div>
-        )}
-        
-        <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
-          <div>
-            <h4 className="font-bold text-lg leading-tight line-clamp-2 mb-1">{meal.recipe.title}</h4>
-            <p className="text-sm text-muted-foreground line-clamp-1">{meal.recipe.description || 'No description'}</p>
-          </div>
-          
-          <div className="flex items-center gap-2 mt-3">
-            <button 
-              onClick={toggleLock}
-              className={`p-2 rounded-lg transition-colors ${meal.isLocked ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}`}
-            >
-              {meal.isLocked ? <Lock className="w-4 h-4" /> : <LockOpen className="w-4 h-4" />}
-            </button>
-            <button 
-              onClick={handleSwap}
-              disabled={meal.isLocked || regenerateMutation.isPending}
-              className={`
-                flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-semibold transition-all
-                ${meal.isLocked 
-                  ? 'bg-muted text-muted-foreground opacity-50 cursor-not-allowed' 
-                  : 'bg-secondary text-secondary-foreground hover:bg-secondary/80 active-elevate-2'}
-              `}
-            >
-              {regenerateMutation.isPending && regenerateMutation.variables === meal.id ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <>
-                  <RefreshCw className="w-4 h-4" /> Swap
-                </>
-              )}
-            </button>
-          </div>
-        </div>
+      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+        isLeftovers ? 'bg-muted text-muted-foreground' :
+        isSimple ? 'bg-green-500/15 text-green-600' :
+        'bg-primary/10 text-primary'
+      }`}>
+        <TypeIcon className="w-4 h-4" />
       </div>
+
+      <div className="flex-1 min-w-0">
+        <h4 className="font-semibold text-sm leading-tight truncate" data-testid={`meal-title-${meal.id}`}>
+          {meal.recipe.title}
+        </h4>
+        {!isLeftovers && (meal.recipe.totalTimeMinutes || meal.recipe.prepTimeMinutes || meal.recipe.cookTimeMinutes) && (
+          <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+            <Clock className="w-3 h-3" />
+            {meal.recipe.totalTimeMinutes || ((meal.recipe.prepTimeMinutes || 0) + (meal.recipe.cookTimeMinutes || 0))}m
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1 shrink-0">
+        <button 
+          onClick={toggleLock}
+          data-testid={`meal-lock-${meal.id}`}
+          className={`p-1.5 rounded-lg transition-colors ${meal.isLocked ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+        >
+          {meal.isLocked ? <Lock className="w-3.5 h-3.5" /> : <LockOpen className="w-3.5 h-3.5" />}
+        </button>
+        <button
+          onClick={handleShuffle}
+          disabled={meal.isLocked || regenerateMutation.isPending}
+          data-testid={`meal-shuffle-${meal.id}`}
+          className={`p-1.5 rounded-lg transition-colors ${meal.isLocked ? 'text-muted-foreground/30 cursor-not-allowed' : 'text-muted-foreground hover:bg-muted'}`}
+        >
+          {regenerateMutation.isPending && regenerateMutation.variables === meal.id ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="w-3.5 h-3.5" />
+          )}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onPickRecipe(); }}
+          disabled={meal.isLocked}
+          data-testid={`meal-pick-${meal.id}`}
+          className={`p-1.5 rounded-lg transition-colors ${meal.isLocked ? 'text-muted-foreground/30 cursor-not-allowed' : 'text-muted-foreground hover:bg-muted'}`}
+        >
+          <List className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+function RecipePickerSheet({ mealId, onClose }: { mealId: number; onClose: () => void }) {
+  const { data: recipes, isLoading } = useRecipes({ isApproved: true });
+  const updateMealMutation = useUpdateMeal();
+  const [search, setSearch] = useState("");
+
+  const filtered = (recipes || []).filter((r: any) =>
+    r.title !== 'Leftovers' &&
+    r.title.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handlePick = (recipe: any) => {
+    updateMealMutation.mutate(
+      { id: mealId, updates: { recipeId: recipe.id } },
+      { onSuccess: () => onClose() }
+    );
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 100 }}
+        animate={{ y: 0 }}
+        exit={{ y: 100 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-card w-full max-w-lg rounded-t-3xl sm:rounded-3xl shadow-ios-lg border border-border overflow-hidden max-h-[80vh] flex flex-col"
+      >
+        <div className="p-4 border-b border-border">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-bold font-display">Choose a Recipe</h2>
+            <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-muted transition-colors" data-testid="picker-close">
+              <X className="w-5 h-5 text-muted-foreground" />
+            </button>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search recipes..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              data-testid="picker-search"
+              className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-muted border-0 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-2">
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8 text-sm">No recipes found</p>
+          ) : (
+            <div className="space-y-1">
+              {filtered.map((recipe: any) => {
+                const rt = recipe.recipeType || 'full';
+                const Icon = rt === 'simple' ? Zap : Utensils;
+                return (
+                  <button
+                    key={recipe.id}
+                    onClick={() => handlePick(recipe)}
+                    disabled={updateMealMutation.isPending}
+                    data-testid={`picker-recipe-${recipe.id}`}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted transition-colors text-left"
+                  >
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                      rt === 'simple' ? 'bg-green-500/15 text-green-600' : 'bg-primary/10 text-primary'
+                    }`}>
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{recipe.title}</p>
+                      {(recipe.totalTimeMinutes || recipe.prepTimeMinutes || recipe.cookTimeMinutes) && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {recipe.totalTimeMinutes || ((recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0))}m
+                        </span>
+                      )}
+                    </div>
+                    {recipe.proteinType && (
+                      <span className="text-xs bg-muted px-2 py-0.5 rounded-full text-muted-foreground capitalize shrink-0">
+                        {recipe.proteinType}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </motion.div>
     </motion.div>
   );
 }
