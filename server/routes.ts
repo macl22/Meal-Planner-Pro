@@ -150,7 +150,7 @@ If title is not found in the text, use: "${title || 'Imported Recipe'}"`;
           const oembedData = await oembedRes.json() as { title?: string; author_name?: string };
           const caption = (oembedData.title || '').trim();
           if (caption.length < 20) {
-            return res.status(400).json({ message: "Couldn't read a recipe from this TikTok caption — it may be too short. Try copying the full caption and using 'Paste Text' instead." });
+            return res.status(400).json({ message: "Couldn't read the caption for this TikTok — try copying the caption and using 'Paste Text' instead." });
           }
           console.log(`TikTok oEmbed caption (${caption.length} chars): ${caption.slice(0, 80)}...`);
           const recipeData = await extractRecipeFromText(caption);
@@ -162,7 +162,7 @@ If title is not found in the text, use: "${title || 'Imported Recipe'}"`;
           return res.status(200).json(recipe);
         } catch (tikErr: any) {
           console.error("TikTok oEmbed error:", tikErr);
-          return res.status(500).json({ message: "Couldn't read the caption for this TikTok — try copying the caption and using 'Paste Text' instead." });
+          return res.status(400).json({ message: "Couldn't read the caption for this TikTok — try copying the caption and using 'Paste Text' instead." });
         }
       }
 
