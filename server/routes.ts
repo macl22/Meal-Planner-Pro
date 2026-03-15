@@ -417,42 +417,91 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       const fullRecipes = allRecipes.filter(r => !r.recipeType || r.recipeType === 'full');
       const simpleRecipes = allRecipes.filter(r => r.recipeType === 'simple');
       const leftoverRecipe = allRecipes.find(r => r.recipeType === 'leftovers' || r.title === 'Leftovers');
-      const fallbackRecipe = allRecipes[0]; // Always have at least one
+      const fallbackRecipe = allRecipes[0];
 
-      // Shuffle helpers
-      const shuffle = <T>(arr: T[]): T[] => [...arr].sort(() => Math.random() - 0.5);
+      // ── Ingredient overlap helpers ────────────────────────────────────
+      const STOP_WORDS = new Set(['with', 'and', 'the', 'for', 'from', 'into', 'over', 'fresh', 'dried', 'large', 'small', 'medium', 'plus', 'more', 'serving', 'about', 'extra', 'finely', 'thinly', 'roughly', 'sliced', 'chopped', 'minced', 'grated', 'diced', 'virgin', 'boneless', 'skinless', 'optional', 'taste', 'kosher', 'black', 'white', 'ground']);
 
-      // Build dinner list: max 3 proper recipes, rest are simple or leftovers
+      const getKeywords = (recipe: any): Set<string> => {
+        const ingredients = (recipe.ingredients as any[]) || [];
+        const kws = new Set<string>();
+        ingredients.forEach((ing: any) => {
+          const name = (ing.ingredient_name_normalized || ing.ingredient_name_raw || '').toLowerCase();
+          const cleaned = name
+            .replace(/\d+[\d\/\s]*(cup|tbsp|tsp|oz|lb|g|kg|ml|clove|bunch|can|piece|slice|pinch|dash|head|sprig|stalk|tablespoon|teaspoon|pound|ounce)s?\b/gi, '')
+            .replace(/[()[\]]/g, '');
+          cleaned.split(/[\s,\-]+/).map(w => w.trim()).filter(w => w.length > 3 && !STOP_WORDS.has(w)).forEach(w => kws.add(w));
+        });
+        return kws;
+      };
+
+      // Greedy: pick `count` recipes from candidates maximising pairwise ingredient overlap
+      const pickWithMaxOverlap = (candidates: any[], count: number): any[] => {
+        if (candidates.length <= count) return candidates;
+        const wk = candidates.map(r => ({ recipe: r, kws: getKeywords(r) }));
+
+        // Seed: the recipe with the highest overlap potential against all others
+        let bestSeedScore = -1, seedIdx = 0;
+        wk.forEach((a, i) => {
+          let s = 0;
+          wk.forEach((b, j) => { if (i !== j) for (const k of a.kws) if (b.kws.has(k)) s++; });
+          if (s > bestSeedScore) { bestSeedScore = s; seedIdx = i; }
+        });
+
+        const selected = [wk[seedIdx]];
+        const pool = wk.filter((_, i) => i !== seedIdx);
+
+        while (selected.length < count && pool.length > 0) {
+          let bestScore = -1, bestI = 0;
+          pool.forEach((cand, i) => {
+            let s = 0;
+            for (const sel of selected) for (const k of cand.kws) if (sel.kws.has(k)) s++;
+            if (s > bestScore) { bestScore = s; bestI = i; }
+          });
+          selected.push(pool.splice(bestI, 1)[0]);
+        }
+        return selected.map(s => s.recipe);
+      };
+
+      // For simple/extra slots: pick the simple meals that share the most ingredients with already-picked full recipes
+      const pickSimpleByOverlap = (simples: any[], alreadyChosen: any[], count: number): any[] => {
+        if (!simples.length) return [];
+        const chosenKws = new Set(alreadyChosen.flatMap(r => [...getKeywords(r)]));
+        return simples
+          .filter(r => !alreadyChosen.includes(r))
+          .map(r => ({ recipe: r, score: [...getKeywords(r)].filter(k => chosenKws.has(k)).length }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, count)
+          .map(s => s.recipe);
+      };
+      // ─────────────────────────────────────────────────────────────────
+
+      // Build dinner list: max 3 proper recipes (overlap-optimised), rest are simple (also overlap-optimised)
       const MAX_PROPER_DINNERS = 3;
       const properDinnerCount = Math.min(MAX_PROPER_DINNERS, input.dinnersCount);
-      const shuffledFull = shuffle(fullRecipes.filter(r => r.mealType === 'dinner' || r.mealType === 'both'));
-      const pickedFull = shuffledFull.slice(0, properDinnerCount);
+      const eligibleFull = fullRecipes.filter(r => r.mealType === 'dinner' || r.mealType === 'both');
+      const pickedFull = pickWithMaxOverlap(eligibleFull, properDinnerCount);
 
-      const planDinners: (typeof allRecipes[0])[] = [];
-      let fullIdx = 0;
-      for (let i = 0; i < input.dinnersCount; i++) {
-        if (fullIdx < pickedFull.length) {
-          planDinners.push(pickedFull[fullIdx++]);
-        } else {
-          // Fill with simple meals, or fallback to full recipe if no simple available
-          const shuffledSimple = shuffle(simpleRecipes);
-          const simpleCandidate = shuffledSimple.find(r => !planDinners.includes(r));
-          planDinners.push(simpleCandidate || shuffle(fullRecipes.filter(r => !planDinners.includes(r)))[0] || fallbackRecipe);
-        }
-      }
+      const simpleSlotCount = Math.max(0, input.dinnersCount - pickedFull.length);
+      const pickedSimple = pickSimpleByOverlap(simpleRecipes, pickedFull, simpleSlotCount);
+      // If not enough simple meals, fall back to more full recipes (overlap-ordered)
+      const extraFull = simpleSlotCount > pickedSimple.length
+        ? pickWithMaxOverlap(eligibleFull.filter(r => !pickedFull.includes(r)), simpleSlotCount - pickedSimple.length)
+        : [];
 
-      // Build lunch list: alternate leftovers from dinner / simple meals
+      const planDinners: (typeof allRecipes[0])[] = [...pickedFull, ...pickedSimple, ...extraFull].slice(0, input.dinnersCount);
+      // Pad if still short
+      while (planDinners.length < input.dinnersCount) planDinners.push(fallbackRecipe);
+
+      // Build lunch list: mostly leftovers from dinners; use Leftovers placeholder every other slot
       const planLunches: (typeof allRecipes[0])[] = [];
       for (let i = 0; i < input.lunchesCount; i++) {
-        const dinnerForLeftover = planDinners[i % planDinners.length];
-        if (dinnerForLeftover && leftoverRecipe) {
-          // Every other lunch is "leftovers" based on a prior dinner
-          planLunches.push(i % 2 === 0 ? dinnerForLeftover : (leftoverRecipe));
+        const sourceDinner = planDinners[i % planDinners.length];
+        if (leftoverRecipe && i % 2 === 1) {
+          planLunches.push(leftoverRecipe);
         } else {
-          // fallback: pick a suitable lunch recipe
-          const lunchRecipes = allRecipes.filter(r => r.mealType === 'lunch' || r.mealType === 'both');
-          const suitable = shuffle(lunchRecipes).find(r => !planLunches.includes(r));
-          planLunches.push(suitable || fallbackRecipe);
+          // Point to the actual dinner so the plan knows it's a leftover of that recipe
+          planLunches.push(sourceDinner || fallbackRecipe);
         }
       }
 
@@ -592,7 +641,25 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       // Remove empty categories
       Object.keys(list).forEach(k => { if (list[k].length === 0) delete list[k]; });
 
-      res.json(list);
+      // Compute ingredient savings: how many ingredient names appear in 2+ different meals
+      const ingredientMealCount: Record<string, number> = {};
+      plan.meals.forEach(meal => {
+        const recipe = meal.recipe;
+        if (!recipe || recipe.title === 'Leftovers' || !Array.isArray(recipe.ingredients)) return;
+        const recipeIngredients = new Set<string>();
+        (recipe.ingredients as any[]).forEach((ing: any) => {
+          const name = (ing.ingredient_name_normalized || ing.ingredient_name_raw || '').toLowerCase().trim();
+          if (name) recipeIngredients.add(name);
+        });
+        recipeIngredients.forEach(name => {
+          ingredientMealCount[name] = (ingredientMealCount[name] || 0) + 1;
+        });
+      });
+      const sharedCount = Object.values(ingredientMealCount).filter(c => c >= 2).length;
+      const totalRaw = Object.values(ingredientMealCount).reduce((sum, c) => sum + c, 0);
+      const savedCount = totalRaw - Object.keys(ingredientMealCount).length;
+
+      res.json({ ...list, _optimization: { sharedCount, savedCount } });
     } catch (err) {
       res.status(500).json({ message: "Failed to generate shopping list" });
     }

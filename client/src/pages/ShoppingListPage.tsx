@@ -3,7 +3,7 @@ import { useParams, Link } from "wouter";
 import { useShoppingList } from "@/hooks/use-weekly-plans";
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { CheckCircle2, Circle, ChevronLeft, ShoppingBag, Leaf } from "lucide-react";
+import { CheckCircle2, Circle, ChevronLeft, ShoppingBag, Leaf, Sparkles } from "lucide-react";
 
 export default function ShoppingListPage() {
   const params = useParams();
@@ -17,6 +17,7 @@ export default function ShoppingListPage() {
     if (!list) return;
     const initial: Record<string, boolean> = {};
     Object.entries(list).forEach(([category, items]: [string, any]) => {
+      if (category === '_optimization' || !Array.isArray(items)) return;
       items.forEach((item: any, i: number) => {
         const key = `${category}-${i}`;
         if (item.isStaple) initial[key] = true;
@@ -31,7 +32,11 @@ export default function ShoppingListPage() {
 
   if (isLoading) return <Layout><LoadingState message="Generating shopping list..." /></Layout>;
 
-  if (!list || Object.keys(list).length === 0) {
+  // Separate the optimization metadata from the ingredient categories
+  const optimization = list?._optimization as { sharedCount: number; savedCount: number } | undefined;
+  const categories = list ? Object.fromEntries(Object.entries(list).filter(([k]) => k !== '_optimization')) : {};
+
+  if (!list || Object.keys(categories).length === 0) {
     return (
       <Layout>
         <div className="text-center py-20">
@@ -42,7 +47,7 @@ export default function ShoppingListPage() {
     );
   }
 
-  const totalItems = Object.values(list).reduce((sum: number, items: any) => sum + items.length, 0);
+  const totalItems = Object.values(categories).reduce((sum: number, items: any) => sum + items.length, 0);
   const checkedCount = Object.values(checkedItems).filter(Boolean).length;
 
   return (
@@ -67,10 +72,21 @@ export default function ShoppingListPage() {
             <Leaf className="w-3.5 h-3.5 text-green-500 shrink-0" />
             <span>Items you likely already have are pre-checked. Uncheck anything you need to buy.</span>
           </div>
+          {optimization && optimization.savedCount > 0 && (
+            <div
+              data-testid="optimization-banner"
+              className="flex items-center gap-2 mt-3 text-xs bg-primary/8 border border-primary/20 rounded-xl px-3 py-2 text-primary"
+            >
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                <strong>{optimization.sharedCount} ingredient{optimization.sharedCount !== 1 ? 's' : ''}</strong> are reused across multiple meals — saving you <strong>{optimization.savedCount} item{optimization.savedCount !== 1 ? 's' : ''}</strong> to buy this week.
+              </span>
+            </div>
+          )}
         </header>
 
         <div className="space-y-6">
-          {Object.entries(list).map(([category, items]: [string, any]) => {
+          {Object.entries(categories).map(([category, items]: [string, any]) => {
             const sortedItems = [...items].sort((a: any, b: any) => {
               const aChecked = checkedItems[`${category}-${items.indexOf(a)}`] ? 1 : 0;
               const bChecked = checkedItems[`${category}-${items.indexOf(b)}`] ? 1 : 0;
