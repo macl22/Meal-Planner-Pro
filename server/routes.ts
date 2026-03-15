@@ -387,31 +387,13 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
 
       const usedInPlan: number[] = [];
 
-      // Logic for picking recipes with leftover/simple meal support
-      const pickRecipe = (type: string, dayIndex: number) => {
-        // Leftover logic: 30% chance of leftovers for lunch if dinner was cooked yesterday
-        if (type === 'lunch' && dayIndex > 0 && Math.random() < 0.3) {
-          const leftoverRecipe = allRecipes.find(r => r.title === "Leftovers");
-          if (leftoverRecipe) return leftoverRecipe;
-        }
-
-        // 20% chance of a "Simple Meal" 
-        if (Math.random() < 0.2) {
-          const simple = allRecipes.find(r => 
-            r.title.toLowerCase().includes("chicken thighs") || 
-            r.title.toLowerCase().includes("simple") ||
-            r.title.toLowerCase().includes("roasted")
-          );
-          if (simple) return simple;
-        }
-
+      const pickRecipe = (type: string) => {
         let suitable = allRecipes.filter(r => 
           (r.mealType === type || r.mealType === 'both') && 
           !usedInPlan.includes(r.id) &&
           r.title !== "Leftovers"
         );
         
-        // If we ran out of unique recipes, relax the constraint
         if (suitable.length === 0) {
           suitable = allRecipes.filter(r => 
             (r.mealType === type || r.mealType === 'both') && 
@@ -424,49 +406,42 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
         return picked;
       };
 
-      const mealPromises = [];
+      const leftoverRecipe = allRecipes.find(r => r.title === "Leftovers");
+
       const planLunches = [];
       const planDinners = [];
 
-      // 1. Generate Dinners first so we can plan leftovers
       for (let i = 0; i < input.dinnersCount; i++) {
-        const recipe = pickRecipe('dinner', i);
-        planDinners.push(recipe);
-      }
-
-      // 2. Generate Lunches with explicit leftover rule
-      for (let i = 0; i < input.lunchesCount; i++) {
-        // If there was a dinner the night before (i-1), 70% chance this lunch is its leftovers
-        if (i > 0 && i <= planDinners.length && Math.random() < 0.7) {
-          const leftoverRecipe = allRecipes.find(r => r.title === "Leftovers");
-          if (leftoverRecipe) {
-            planLunches.push(leftoverRecipe);
-            continue;
-          }
+        if (i % 2 === 1 && leftoverRecipe) {
+          planDinners.push(leftoverRecipe);
+        } else {
+          planDinners.push(pickRecipe('dinner'));
         }
-        
-        const recipe = pickRecipe('lunch', i);
-        planLunches.push(recipe);
       }
 
-      // 3. Save all meals
+      for (let i = 0; i < input.lunchesCount; i++) {
+        if (i % 2 === 1 && leftoverRecipe) {
+          planLunches.push(leftoverRecipe);
+        } else {
+          planLunches.push(pickRecipe('lunch'));
+        }
+      }
+
       for (const recipe of planLunches) {
-        mealPromises.push(storage.createWeeklyPlanMeal({
+        await storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
           recipeId: recipe.id,
           mealType: 'lunch'
-        }));
+        });
       }
 
       for (const recipe of planDinners) {
-        mealPromises.push(storage.createWeeklyPlanMeal({
+        await storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
           recipeId: recipe.id,
           mealType: 'dinner'
-        }));
+        });
       }
-
-      await Promise.all(mealPromises);
 
       const completePlan = await storage.getWeeklyPlan(plan.id);
       res.status(201).json(completePlan);
