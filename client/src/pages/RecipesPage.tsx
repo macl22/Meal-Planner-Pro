@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useRecipes, useImportRecipe, useImportText, useDeleteRecipe, useCreateRecipe } from "@/hooks/use-recipes";
+import { useRecipes, useImportRecipe, useImportText, useDeleteRecipe, useCreateRecipe, useUpdateRecipe } from "@/hooks/use-recipes";
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { Plus, Search, Link as LinkIcon, Trash2, Clock, Users, X, Loader2, BookOpen, Utensils, FileText, Zap, ChevronDown, ChevronUp, Check } from "lucide-react";
+import { Plus, Search, Link as LinkIcon, Trash2, Clock, Users, X, Loader2, BookOpen, Utensils, FileText, Zap, ChevronDown, ChevronUp, Check, Pencil, Save } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 
@@ -91,7 +91,7 @@ export default function RecipesPage() {
 
         <AnimatePresence>
           {selectedRecipe && (
-            <RecipeDetailModal recipe={selectedRecipe} onClose={() => setSelectedRecipe(null)} />
+            <RecipeDetailModal recipe={selectedRecipe} onClose={() => setSelectedRecipe(null)} onUpdate={(updated: any) => setSelectedRecipe(updated)} />
           )}
         </AnimatePresence>
 
@@ -459,7 +459,42 @@ function RecipeCard({ recipe, index, onClick }: { recipe: any, index: number, on
   );
 }
 
-function RecipeDetailModal({ recipe, onClose }: { recipe: any, onClose: () => void }) {
+function RecipeDetailModal({ recipe, onClose, onUpdate }: { recipe: any, onClose: () => void, onUpdate: (updated: any) => void }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(recipe.title || "");
+  const [editInstructions, setEditInstructions] = useState(recipe.instructions || "");
+  const [editNotes, setEditNotes] = useState(recipe.notes || "");
+  const updateRecipe = useUpdateRecipe();
+  const { toast } = useToast();
+
+  const handleSave = () => {
+    if (!editTitle.trim()) {
+      toast({ title: "Title cannot be empty", variant: "destructive" });
+      return;
+    }
+    updateRecipe.mutate(
+      { id: recipe.id, updates: { title: editTitle, instructions: editInstructions, notes: editNotes } },
+      {
+        onSuccess: (updatedRecipe) => {
+          const merged = { ...recipe, title: editTitle, instructions: editInstructions, notes: editNotes, ...(updatedRecipe || {}) };
+          onUpdate(merged);
+          setIsEditing(false);
+          toast({ title: "Recipe updated" });
+        },
+        onError: () => {
+          toast({ title: "Failed to update recipe", variant: "destructive" });
+        },
+      }
+    );
+  };
+
+  const handleCancel = () => {
+    setEditTitle(recipe.title || "");
+    setEditInstructions(recipe.instructions || "");
+    setEditNotes(recipe.notes || "");
+    setIsEditing(false);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
       <motion.div 
@@ -476,18 +511,60 @@ function RecipeDetailModal({ recipe, onClose }: { recipe: any, onClose: () => vo
               <Utensils className="w-24 h-24" />
             </div>
           )}
-          <button 
-            onClick={onClose}
-            className="absolute top-4 right-4 bg-background/80 backdrop-blur p-2 rounded-full shadow-lg"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          <div className="absolute top-4 right-4 flex gap-2">
+            {isEditing ? (
+              <>
+                <button
+                  data-testid="button-save-recipe"
+                  onClick={handleSave}
+                  disabled={updateRecipe.isPending}
+                  className="bg-primary text-primary-foreground backdrop-blur px-3 py-2 rounded-full shadow-lg font-semibold text-sm flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {updateRecipe.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Save
+                </button>
+                <button
+                  data-testid="button-cancel-edit"
+                  onClick={handleCancel}
+                  disabled={updateRecipe.isPending}
+                  className="bg-background/80 backdrop-blur px-3 py-2 rounded-full shadow-lg font-semibold text-sm disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                data-testid="button-edit-recipe"
+                onClick={() => setIsEditing(true)}
+                className="bg-background/80 backdrop-blur p-2 rounded-full shadow-lg"
+              >
+                <Pencil className="w-6 h-6" />
+              </button>
+            )}
+            <button 
+              data-testid="button-close-modal"
+              onClick={onClose}
+              className="bg-background/80 backdrop-blur p-2 rounded-full shadow-lg"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         <div className="p-8 overflow-y-auto">
           <div className="flex justify-between items-start gap-4 mb-6">
-            <div>
-              <h2 className="text-3xl font-extrabold font-display leading-tight">{recipe.title}</h2>
+            <div className="flex-1">
+              {isEditing ? (
+                <input
+                  data-testid="input-edit-title"
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="text-3xl font-extrabold font-display leading-tight w-full bg-muted/50 border border-border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              ) : (
+                <h2 data-testid="text-recipe-title" className="text-3xl font-extrabold font-display leading-tight">{recipe.title}</h2>
+              )}
               <div className="flex gap-4 mt-2 text-muted-foreground font-medium">
                 <span className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> {recipe.totalTimeMinutes || '?'}m</span>
                 <span className="flex items-center gap-1.5"><Users className="w-4 h-4" /> {recipe.defaultServings} servings</span>
@@ -495,6 +572,7 @@ function RecipeDetailModal({ recipe, onClose }: { recipe: any, onClose: () => vo
               </div>
             </div>
           </div>
+
 
           <div className="space-y-8">
             {recipe.ingredients?.length > 0 && (
@@ -511,20 +589,44 @@ function RecipeDetailModal({ recipe, onClose }: { recipe: any, onClose: () => vo
               </section>
             )}
 
-            {recipe.instructions && (
-              <section>
-                <h3 className="text-xl font-bold font-display mb-4">Instructions</h3>
-                <div className="text-lg leading-relaxed whitespace-pre-wrap text-foreground/90">
-                  {recipe.instructions}
-                </div>
-              </section>
-            )}
+            <section>
+              <h3 className="text-xl font-bold font-display mb-4">Instructions</h3>
+              {isEditing ? (
+                <textarea
+                  data-testid="input-edit-instructions"
+                  value={editInstructions}
+                  onChange={(e) => setEditInstructions(e.target.value)}
+                  rows={8}
+                  className="w-full text-lg leading-relaxed bg-muted/50 border border-border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+                />
+              ) : (
+                recipe.instructions && (
+                  <div data-testid="text-recipe-instructions" className="text-lg leading-relaxed whitespace-pre-wrap text-foreground/90">
+                    {recipe.instructions}
+                  </div>
+                )
+              )}
+            </section>
 
-            {recipe.notes && (
-              <section className="bg-primary/5 p-6 rounded-3xl border border-primary/10">
+            {isEditing ? (
+              <section>
                 <h3 className="text-lg font-bold font-display mb-2 text-primary">Notes</h3>
-                <p className="text-muted-foreground italic">{recipe.notes}</p>
+                <textarea
+                  data-testid="input-edit-notes"
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Add personal notes (e.g. 'add extra chili next time')"
+                  className="w-full text-base bg-primary/5 border border-primary/10 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+                />
               </section>
+            ) : (
+              recipe.notes && (
+                <section data-testid="section-recipe-notes" className="bg-primary/5 p-6 rounded-3xl border border-primary/10">
+                  <h3 className="text-lg font-bold font-display mb-2 text-primary">Notes</h3>
+                  <p className="text-muted-foreground italic">{recipe.notes}</p>
+                </section>
+              )
             )}
           </div>
         </div>
