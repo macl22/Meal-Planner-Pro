@@ -96,11 +96,11 @@ Text: ${text.slice(0, 12000)}
 Return ONLY a JSON object with:
 title (string), description (string), mealType ("lunch", "dinner", or "both"), prepTimeMinutes (number), cookTimeMinutes (number),
 ingredients (array of {raw: string, normalized: string, quantity: number|null, unit: string|null}), instructions (string).
-If title is not found in the text, use: "${title || 'Imported Recipe'}"`;
+${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no recipe name is explicitly stated, synthesize a short descriptive title from the main ingredients and cooking method (e.g. "Garlic Butter Salmon", "Crispy Tofu Stir Fry"). Never use "Imported Recipe" as the title.`}`;
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "You are a helpful assistant that extracts recipe data from text into clean JSON." },
+        { role: "system", content: "You are a helpful assistant that extracts recipe data from text into clean JSON. Always provide a descriptive recipe title." },
         { role: "user", content: prompt }
       ],
       response_format: { type: "json_object" }
@@ -118,7 +118,7 @@ If title is not found in the text, use: "${title || 'Imported Recipe'}"`;
       preparation_note: null
     })) : [];
     return {
-      title: data.title || overrides.title || "Imported Recipe",
+      title: (data.title && data.title !== "Imported Recipe" ? data.title : null) || overrides.title || "Untitled Recipe",
       description: data.description || "",
       sourceType: "imported" as const,
       ingredients: extractedIngredients,
