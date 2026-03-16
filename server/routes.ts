@@ -318,6 +318,10 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
       });
 
       if (!response.ok) {
+        const blockedCodes = [402, 403, 410, 429];
+        if (blockedCodes.includes(response.status)) {
+          return res.status(422).json({ message: "This site blocks automated access — copy the recipe text from the page and use Paste Text instead." });
+        }
         throw new Error(`Failed to fetch URL: ${response.statusText}`);
       }
 

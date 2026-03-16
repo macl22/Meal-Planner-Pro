@@ -71,7 +71,7 @@ export default function RecipesPage() {
             ))}
           </div>
 
-          {importMode === "url" && <UrlImport />}
+          {importMode === "url" && <UrlImport onSwitchToText={() => setImportMode("text")} />}
           {importMode === "text" && <TextImport />}
           {importMode === "bulk" && <BulkImport />}
         </div>
@@ -114,7 +114,7 @@ export default function RecipesPage() {
   );
 }
 
-function UrlImport() {
+function UrlImport({ onSwitchToText }: { onSwitchToText: () => void }) {
   const importMutation = useImportRecipe();
   const { toast } = useToast();
 
@@ -127,7 +127,13 @@ function UrlImport() {
         toast({ title: `Imported: ${recipe.title}`, description: "Added to your library." });
       },
       onError: (err: any) => {
-        toast({ title: "Import failed", description: err.message || "Try pasting the text instead.", variant: "destructive" });
+        const msg = err.message || "";
+        if (msg.includes("blocks automated access")) {
+          toast({ title: "Site blocked access", description: "Switching to Paste Text — copy the recipe from the page and paste it there.", variant: "destructive" });
+          onSwitchToText();
+        } else {
+          toast({ title: "Import failed", description: msg || "Try pasting the text instead.", variant: "destructive" });
+        }
       }
     });
   };
@@ -151,7 +157,7 @@ function UrlImport() {
           {importMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Import'}
         </button>
       </div>
-      <p className="text-xs text-muted-foreground mt-2">Works with NYT Cooking, TikTok, Seriouseats, Bon Appétit, and most recipe sites.</p>
+      <p className="text-xs text-muted-foreground mt-2">Some sites may block automated access. If import fails, use Paste Text instead.</p>
     </div>
   );
 }
