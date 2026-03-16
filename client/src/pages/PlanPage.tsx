@@ -230,6 +230,7 @@ function RecipePickerSheet({ mealId, onClose }: { mealId: number; onClose: () =>
   const updateMealMutation = useUpdateMeal();
   const [search, setSearch] = useState("");
 
+  const leftoversRecipe = (recipes || []).find((r: any) => r.recipeType === 'leftovers');
   const filtered = (recipes || []).filter((r: any) =>
     r.recipeType !== 'leftovers' &&
     r.title.toLowerCase().includes(search.toLowerCase())
@@ -264,6 +265,19 @@ function RecipePickerSheet({ mealId, onClose }: { mealId: number; onClose: () =>
               <X className="w-5 h-5 text-muted-foreground" />
             </button>
           </div>
+          {leftoversRecipe && (
+            <button
+              onClick={() => handlePick(leftoversRecipe)}
+              disabled={updateMealMutation.isPending}
+              data-testid="picker-leftovers"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted/60 hover:bg-muted transition-colors text-left mb-3"
+            >
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-muted text-muted-foreground">
+                <Repeat2 className="w-3.5 h-3.5" />
+              </div>
+              <p className="font-medium text-sm text-muted-foreground">Leftovers</p>
+            </button>
+          )}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
