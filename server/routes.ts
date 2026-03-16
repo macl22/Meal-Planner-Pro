@@ -133,6 +133,113 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
 
   const NO_INSTRUCTIONS_ERROR = "This recipe could not be imported — no cooking instructions were found.";
 
+  function parseISO8601Duration(duration: string | undefined): number | null {
+    if (!duration || typeof duration !== 'string') return null;
+    const match = duration.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if (!match) return null;
+    const days = parseInt(match[1] || '0', 10);
+    const hours = parseInt(match[2] || '0', 10);
+    const minutes = parseInt(match[3] || '0', 10);
+    const total = days * 24 * 60 + hours * 60 + minutes;
+    return total > 0 ? total : null;
+  }
+
+  function extractJsonLdRecipe($: cheerio.CheerioAPI): any | null {
+    const scripts = $('script[type="application/ld+json"]');
+    for (let i = 0; i < scripts.length; i++) {
+      try {
+        const raw = $(scripts[i]).html();
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        const recipe = findRecipeInJsonLd(parsed);
+        if (recipe) return recipe;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  function findRecipeInJsonLd(data: any, depth = 0): any | null {
+    if (!data || depth > 5) return null;
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        const found = findRecipeInJsonLd(item, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (typeof data === 'object') {
+      const type = data['@type'];
+      if (type === 'Recipe' || (Array.isArray(type) && type.includes('Recipe'))) {
+        return data;
+      }
+      for (const key of Object.keys(data)) {
+        if (key.startsWith('@') && key !== '@graph') continue;
+        const val = data[key];
+        if (val && typeof val === 'object') {
+          const found = findRecipeInJsonLd(val, depth + 1);
+          if (found) return found;
+        }
+      }
+    }
+    return null;
+  }
+
+  function isStepType(type: any, target: string): boolean {
+    return type === target || (Array.isArray(type) && type.includes(target));
+  }
+
+  function formatInstructionStep(step: any, idx: number): string {
+    if (typeof step === 'string') return `${idx + 1}. ${step.trim()}`;
+    if (step && isStepType(step['@type'], 'HowToStep')) return `${idx + 1}. ${(step.text || '').trim()}`;
+    if (step && isStepType(step['@type'], 'HowToSection')) {
+      const sectionName = step.name || '';
+      const sectionSteps = Array.isArray(step.itemListElement)
+        ? step.itemListElement.map((s: any, j: number) =>
+            `${j + 1}. ${typeof s === 'string' ? s.trim() : (s.text || '').trim()}`
+          ).join('\n')
+        : '';
+      return sectionName ? `**${sectionName}**\n${sectionSteps}` : sectionSteps;
+    }
+    return '';
+  }
+
+  function mapJsonLdToRecipeData(ld: any): any {
+    const ingredients = Array.isArray(ld.recipeIngredient)
+      ? ld.recipeIngredient.map((ing: string) => ({
+          raw: typeof ing === 'string' ? ing.trim() : String(ing),
+        }))
+      : [];
+
+    let instructions = '';
+    if (Array.isArray(ld.recipeInstructions)) {
+      instructions = ld.recipeInstructions.map((step: any, idx: number) =>
+        formatInstructionStep(step, idx)
+      ).filter(Boolean).join('\n');
+    } else if (typeof ld.recipeInstructions === 'string') {
+      instructions = ld.recipeInstructions.trim();
+    } else if (ld.recipeInstructions && typeof ld.recipeInstructions === 'object') {
+      if (isStepType(ld.recipeInstructions['@type'], 'ItemList') && Array.isArray(ld.recipeInstructions.itemListElement)) {
+        instructions = ld.recipeInstructions.itemListElement.map((step: any, idx: number) =>
+          formatInstructionStep(step, idx)
+        ).filter(Boolean).join('\n');
+      } else {
+        instructions = formatInstructionStep(ld.recipeInstructions, 0);
+      }
+    }
+
+    return {
+      title: ld.name || null,
+      description: ld.description || '',
+      ingredients,
+      instructions,
+      prepTimeMinutes: parseISO8601Duration(ld.prepTime),
+      cookTimeMinutes: parseISO8601Duration(ld.cookTime),
+      hasRealInstructions: instructions.length >= 15,
+    };
+  }
+
   function buildRecipeFromExtracted(data: any, overrides: any = {}) {
     const extractedIngredients = Array.isArray(data.ingredients) ? data.ingredients.map((i: any) => ({
       ingredient_name_raw: i.raw || (typeof i === 'string' ? i : "Ingredient"),
@@ -199,12 +306,14 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
         return res.status(400).json({ message: "Instagram blocks automated access. Copy the caption text and use 'Paste Text' instead." });
       }
 
-      // ── Regular URLs: fetch HTML and extract via cheerio + AI ─────
+      // ── Regular URLs: fetch HTML and extract via JSON-LD or AI ────
       const response = await fetch(input.url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Referer': 'https://www.google.com/',
         }
       });
 
@@ -214,8 +323,26 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
 
       const html = await response.text();
       const $ = cheerio.load(html);
-
       const sourceName = new URL(input.url).hostname;
+
+      // ── Try JSON-LD structured data first ──────────────────────────
+      const jsonLdRecipe = extractJsonLdRecipe($);
+      if (jsonLdRecipe) {
+        console.log(`Found JSON-LD Recipe data from ${sourceName}`);
+        const recipeData = mapJsonLdToRecipeData(jsonLdRecipe);
+
+        if (hasRealInstructions(recipeData)) {
+          const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData, {
+            sourceUrl: input.url,
+            sourceName,
+          }));
+          console.log(`Successfully imported via JSON-LD: ${recipe.title}`);
+          return res.status(200).json(recipe);
+        }
+        console.log('JSON-LD found but instructions were insufficient, falling back to AI extraction');
+      }
+
+      // ── Fallback: extract via cheerio + AI ─────────────────────────
       const pageTitle = $('title').text().split('|')[0].trim() || $('h1').first().text().trim() || "Imported Recipe";
 
       $('script, style, header, footer, nav, noscript, .ads, .sidebar, .comments, iframe').remove();
