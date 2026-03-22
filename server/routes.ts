@@ -4,7 +4,10 @@ import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import * as cheerio from "cheerio";
-import { openai } from "./replit_integrations/audio/client"; // Reuse openai instance from audio integration
+import Anthropic from "@anthropic-ai/sdk";
+import { openai } from "./replit_integrations/audio/client";
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 import { db } from "./db";
 import { weeklyPlanMeals } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -116,19 +119,16 @@ title (string), description (string), mealType ("lunch", "dinner", or "both"), p
 ingredients (array of {raw: string, normalized: string, quantity: number|null, unit: string|null}), instructions (string),
 hasRealInstructions (boolean — set to true ONLY if the text contains actual step-by-step cooking instructions. Set to false if the instructions are missing, empty, or just placeholder/redirect text like "visit my site", "link in bio", "full recipe on my page", "in my pro file", "check the link", or similar non-cooking content).
 ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no recipe name is explicitly stated, synthesize a short descriptive title from the main ingredients and cooking method (e.g. "Garlic Butter Salmon", "Crispy Tofu Stir Fry"). Never use "Imported Recipe" as the title.`}`;
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a helpful assistant that extracts recipe data from text into clean JSON. Always provide a descriptive recipe title.",
-        },
-        { role: "user", content: prompt },
-      ],
-      response_format: { type: "json_object" },
+    const message = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 2048,
+      system: "You are a helpful assistant that extracts recipe data from text into clean JSON. Always provide a descriptive recipe title. Return ONLY valid JSON with no additional text or markdown.",
+      messages: [{ role: "user", content: prompt }],
     });
-    return JSON.parse(completion.choices[0].message.content || "{}");
+    const content = message.content[0];
+    if (content.type !== "text") throw new Error("Unexpected response from Claude");
+    const raw = content.text.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+    return JSON.parse(raw);
   }
 
   const PLACEHOLDER_PATTERNS = [
