@@ -11,21 +11,24 @@ import { eq } from "drizzle-orm";
 
 export async function registerRoutes(
   httpServer: Server,
-  app: Express
+  app: Express,
 ): Promise<Server> {
   // Recipes
   app.get(api.recipes.list.path, async (req, res) => {
     try {
-      const isApproved = req.query.isApproved ? req.query.isApproved === 'true' : undefined;
+      const isApproved = req.query.isApproved
+        ? req.query.isApproved === "true"
+        : undefined;
       const allRecipes = await storage.getRecipes(isApproved);
-      
+
       let filtered = allRecipes;
       if (req.query.search) {
         const search = String(req.query.search).toLowerCase();
-        filtered = allRecipes.filter(r => 
-          r.title.toLowerCase().includes(search) || 
-          (r.cuisine && r.cuisine.toLowerCase().includes(search)) ||
-          (r.description && r.description.toLowerCase().includes(search))
+        filtered = allRecipes.filter(
+          (r) =>
+            r.title.toLowerCase().includes(search) ||
+            (r.cuisine && r.cuisine.toLowerCase().includes(search)) ||
+            (r.description && r.description.toLowerCase().includes(search)),
         );
       }
       res.json(filtered);
@@ -37,7 +40,7 @@ export async function registerRoutes(
   app.get(api.recipes.get.path, async (req, res) => {
     try {
       const recipe = await storage.getRecipe(Number(req.params.id));
-      if (!recipe) return res.status(404).json({ message: 'Recipe not found' });
+      if (!recipe) return res.status(404).json({ message: "Recipe not found" });
       res.json(recipe);
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch recipe" });
@@ -51,7 +54,10 @@ export async function registerRoutes(
       res.status(201).json(recipe);
     } catch (err) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join("."),
+        });
       }
       res.status(500).json({ message: "Failed to create recipe" });
     }
@@ -61,11 +67,14 @@ export async function registerRoutes(
     try {
       const input = api.recipes.update.input.parse(req.body);
       const recipe = await storage.updateRecipe(Number(req.params.id), input);
-      if (!recipe) return res.status(404).json({ message: 'Recipe not found' });
+      if (!recipe) return res.status(404).json({ message: "Recipe not found" });
       res.json(recipe);
     } catch (err) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join("."),
+        });
       }
       res.status(500).json({ message: "Failed to update recipe" });
     }
@@ -74,11 +83,17 @@ export async function registerRoutes(
   app.delete(api.recipes.delete.path, async (req, res) => {
     try {
       const id = Number(req.params.id);
-      
+
       // Check if recipe is used in any weekly plans
-      const meals = await db.select().from(weeklyPlanMeals).where(eq(weeklyPlanMeals.recipeId, id));
+      const meals = await db
+        .select()
+        .from(weeklyPlanMeals)
+        .where(eq(weeklyPlanMeals.recipeId, id));
       if (meals.length > 0) {
-        return res.status(400).json({ message: "Cannot delete recipe as it is used in a weekly plan. Remove it from the plan first." });
+        return res.status(400).json({
+          message:
+            "Cannot delete recipe as it is used in a weekly plan. Remove it from the plan first.",
+        });
       }
 
       await storage.deleteRecipe(id);
@@ -90,7 +105,10 @@ export async function registerRoutes(
   });
 
   // Shared AI extraction helper
-  async function extractRecipeFromText(text: string, title?: string): Promise<any> {
+  async function extractRecipeFromText(
+    text: string,
+    title?: string,
+  ): Promise<any> {
     const prompt = `Extract recipe data from this text.
 Text: ${text.slice(0, 12000)}
 Return ONLY a JSON object with:
@@ -101,10 +119,14 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "You are a helpful assistant that extracts recipe data from text into clean JSON. Always provide a descriptive recipe title." },
-        { role: "user", content: prompt }
+        {
+          role: "system",
+          content:
+            "You are a helpful assistant that extracts recipe data from text into clean JSON. Always provide a descriptive recipe title.",
+        },
+        { role: "user", content: prompt },
       ],
-      response_format: { type: "json_object" }
+      response_format: { type: "json_object" },
     });
     return JSON.parse(completion.choices[0].message.content || "{}");
   }
@@ -131,15 +153,18 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
     return true;
   }
 
-  const NO_INSTRUCTIONS_ERROR = "This recipe could not be imported — no cooking instructions were found.";
+  const NO_INSTRUCTIONS_ERROR =
+    "This recipe could not be imported — no cooking instructions were found.";
 
   function parseISO8601Duration(duration: string | undefined): number | null {
-    if (!duration || typeof duration !== 'string') return null;
-    const match = duration.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if (!duration || typeof duration !== "string") return null;
+    const match = duration.match(
+      /P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/,
+    );
     if (!match) return null;
-    const days = parseInt(match[1] || '0', 10);
-    const hours = parseInt(match[2] || '0', 10);
-    const minutes = parseInt(match[3] || '0', 10);
+    const days = parseInt(match[1] || "0", 10);
+    const hours = parseInt(match[2] || "0", 10);
+    const minutes = parseInt(match[3] || "0", 10);
     const total = days * 24 * 60 + hours * 60 + minutes;
     return total > 0 ? total : null;
   }
@@ -169,15 +194,18 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
       }
       return null;
     }
-    if (typeof data === 'object') {
-      const type = data['@type'];
-      if (type === 'Recipe' || (Array.isArray(type) && type.includes('Recipe'))) {
+    if (typeof data === "object") {
+      const type = data["@type"];
+      if (
+        type === "Recipe" ||
+        (Array.isArray(type) && type.includes("Recipe"))
+      ) {
         return data;
       }
       for (const key of Object.keys(data)) {
-        if (key.startsWith('@') && key !== '@graph') continue;
+        if (key.startsWith("@") && key !== "@graph") continue;
         const val = data[key];
-        if (val && typeof val === 'object') {
+        if (val && typeof val === "object") {
           const found = findRecipeInJsonLd(val, depth + 1);
           if (found) return found;
         }
@@ -191,39 +219,51 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
   }
 
   function formatInstructionStep(step: any, idx: number): string {
-    if (typeof step === 'string') return `${idx + 1}. ${step.trim()}`;
-    if (step && isStepType(step['@type'], 'HowToStep')) return `${idx + 1}. ${(step.text || '').trim()}`;
-    if (step && isStepType(step['@type'], 'HowToSection')) {
-      const sectionName = step.name || '';
+    if (typeof step === "string") return `${idx + 1}. ${step.trim()}`;
+    if (step && isStepType(step["@type"], "HowToStep"))
+      return `${idx + 1}. ${(step.text || "").trim()}`;
+    if (step && isStepType(step["@type"], "HowToSection")) {
+      const sectionName = step.name || "";
       const sectionSteps = Array.isArray(step.itemListElement)
-        ? step.itemListElement.map((s: any, j: number) =>
-            `${j + 1}. ${typeof s === 'string' ? s.trim() : (s.text || '').trim()}`
-          ).join('\n')
-        : '';
+        ? step.itemListElement
+            .map(
+              (s: any, j: number) =>
+                `${j + 1}. ${typeof s === "string" ? s.trim() : (s.text || "").trim()}`,
+            )
+            .join("\n")
+        : "";
       return sectionName ? `**${sectionName}**\n${sectionSteps}` : sectionSteps;
     }
-    return '';
+    return "";
   }
 
   function mapJsonLdToRecipeData(ld: any): any {
     const ingredients = Array.isArray(ld.recipeIngredient)
       ? ld.recipeIngredient.map((ing: string) => ({
-          raw: typeof ing === 'string' ? ing.trim() : String(ing),
+          raw: typeof ing === "string" ? ing.trim() : String(ing),
         }))
       : [];
 
-    let instructions = '';
+    let instructions = "";
     if (Array.isArray(ld.recipeInstructions)) {
-      instructions = ld.recipeInstructions.map((step: any, idx: number) =>
-        formatInstructionStep(step, idx)
-      ).filter(Boolean).join('\n');
-    } else if (typeof ld.recipeInstructions === 'string') {
+      instructions = ld.recipeInstructions
+        .map((step: any, idx: number) => formatInstructionStep(step, idx))
+        .filter(Boolean)
+        .join("\n");
+    } else if (typeof ld.recipeInstructions === "string") {
       instructions = ld.recipeInstructions.trim();
-    } else if (ld.recipeInstructions && typeof ld.recipeInstructions === 'object') {
-      if (isStepType(ld.recipeInstructions['@type'], 'ItemList') && Array.isArray(ld.recipeInstructions.itemListElement)) {
-        instructions = ld.recipeInstructions.itemListElement.map((step: any, idx: number) =>
-          formatInstructionStep(step, idx)
-        ).filter(Boolean).join('\n');
+    } else if (
+      ld.recipeInstructions &&
+      typeof ld.recipeInstructions === "object"
+    ) {
+      if (
+        isStepType(ld.recipeInstructions["@type"], "ItemList") &&
+        Array.isArray(ld.recipeInstructions.itemListElement)
+      ) {
+        instructions = ld.recipeInstructions.itemListElement
+          .map((step: any, idx: number) => formatInstructionStep(step, idx))
+          .filter(Boolean)
+          .join("\n");
       } else {
         instructions = formatInstructionStep(ld.recipeInstructions, 0);
       }
@@ -231,7 +271,7 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
 
     return {
       title: ld.name || null,
-      description: ld.description || '',
+      description: ld.description || "",
       ingredients,
       instructions,
       prepTimeMinutes: parseISO8601Duration(ld.prepTime),
@@ -241,16 +281,23 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
   }
 
   function buildRecipeFromExtracted(data: any, overrides: any = {}) {
-    const extractedIngredients = Array.isArray(data.ingredients) ? data.ingredients.map((i: any) => ({
-      ingredient_name_raw: i.raw || (typeof i === 'string' ? i : "Ingredient"),
-      ingredient_name_normalized: i.normalized || i.raw || (typeof i === 'string' ? i : "Ingredient"),
-      quantity: typeof i.quantity === 'number' ? i.quantity : null,
-      unit: i.unit || null,
-      optional_boolean: false,
-      preparation_note: null
-    })) : [];
+    const extractedIngredients = Array.isArray(data.ingredients)
+      ? data.ingredients.map((i: any) => ({
+          ingredient_name_raw:
+            i.raw || (typeof i === "string" ? i : "Ingredient"),
+          ingredient_name_normalized:
+            i.normalized || i.raw || (typeof i === "string" ? i : "Ingredient"),
+          quantity: typeof i.quantity === "number" ? i.quantity : null,
+          unit: i.unit || null,
+          optional_boolean: false,
+          preparation_note: null,
+        }))
+      : [];
     return {
-      title: (data.title && data.title !== "Imported Recipe" ? data.title : null) || overrides.title || "Untitled Recipe",
+      title:
+        (data.title && data.title !== "Imported Recipe" ? data.title : null) ||
+        overrides.title ||
+        "Untitled Recipe",
       description: data.description || "",
       sourceType: "imported" as const,
       ingredients: extractedIngredients,
@@ -259,8 +306,9 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
       mealType: data.mealType || "both",
       prepTimeMinutes: data.prepTimeMinutes || null,
       cookTimeMinutes: data.cookTimeMinutes || null,
-      totalTimeMinutes: (data.prepTimeMinutes || 0) + (data.cookTimeMinutes || 0) || null,
-      ...overrides
+      totalTimeMinutes:
+        (data.prepTimeMinutes || 0) + (data.cookTimeMinutes || 0) || null,
+      ...overrides,
     };
   }
 
@@ -270,57 +318,80 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
       const input = api.recipes.importFromUrl.input.parse(req.body);
       console.log(`Attempting to import from: ${input.url}`);
 
-      const isTikTok = input.url.includes('tiktok.com');
-      const isInstagram = input.url.includes('instagram.com') || input.url.includes('reels');
+      const isTikTok = input.url.includes("tiktok.com");
+      const isInstagram =
+        input.url.includes("instagram.com") || input.url.includes("reels");
 
       // ── TikTok: use the public oEmbed API to get the caption ──────
       if (isTikTok) {
         try {
           const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(input.url)}`;
           const oembedRes = await fetch(oembedUrl);
-          if (!oembedRes.ok) throw new Error(`oEmbed returned ${oembedRes.status}`);
-          const oembedData = await oembedRes.json() as { title?: string; author_name?: string };
-          const caption = (oembedData.title || '').trim();
+          if (!oembedRes.ok)
+            throw new Error(`oEmbed returned ${oembedRes.status}`);
+          const oembedData = (await oembedRes.json()) as {
+            title?: string;
+            author_name?: string;
+          };
+          const caption = (oembedData.title || "").trim();
           if (caption.length < 20) {
-            return res.status(400).json({ message: "Couldn't read the caption for this TikTok — try copying the caption and using 'Paste Text' instead." });
+            return res.status(400).json({
+              message:
+                "Couldn't read the caption for this TikTok — try copying the caption and using 'Paste Text' instead.",
+            });
           }
-          console.log(`TikTok oEmbed caption (${caption.length} chars): ${caption.slice(0, 80)}...`);
+          console.log(
+            `TikTok oEmbed caption (${caption.length} chars): ${caption.slice(0, 80)}...`,
+          );
           const recipeData = await extractRecipeFromText(caption);
           if (!hasRealInstructions(recipeData)) {
             return res.status(422).json({ message: NO_INSTRUCTIONS_ERROR });
           }
-          const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData || {}, {
-            sourceUrl: input.url,
-            sourceName: 'tiktok.com',
-          }));
+          const recipe = await storage.createRecipe(
+            buildRecipeFromExtracted(recipeData || {}, {
+              sourceUrl: input.url,
+              sourceName: "tiktok.com",
+            }),
+          );
           console.log(`Successfully imported from TikTok: ${recipe.title}`);
           return res.status(200).json(recipe);
         } catch (tikErr: any) {
           console.error("TikTok oEmbed error:", tikErr);
-          return res.status(400).json({ message: "Couldn't read the caption for this TikTok — try copying the caption and using 'Paste Text' instead." });
+          return res.status(400).json({
+            message:
+              "Couldn't read the caption for this TikTok — try copying the caption and using 'Paste Text' instead.",
+          });
         }
       }
 
       // ── Instagram: still unsupported (requires app token) ─────────
       if (isInstagram) {
-        return res.status(400).json({ message: "Instagram blocks automated access. Copy the caption text and use 'Paste Text' instead." });
+        return res.status(400).json({
+          message:
+            "Instagram blocks automated access. Copy the caption text and use 'Paste Text' instead.",
+        });
       }
 
       // ── Regular URLs: fetch HTML and extract via JSON-LD or AI ────
       const response = await fetch(input.url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Cache-Control': 'no-cache',
-          'Referer': 'https://www.google.com/',
-        }
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Cache-Control": "no-cache",
+          Referer: "https://www.google.com/",
+        },
       });
 
       if (!response.ok) {
         const blockedCodes = [402, 403, 410, 429];
         if (blockedCodes.includes(response.status)) {
-          return res.status(422).json({ message: "This site blocks automated access — copy the recipe text from the page and use Paste Text instead." });
+          return res.status(422).json({
+            message:
+              "This site blocks automated access — copy the recipe text from the page and use Paste Text instead.",
+          });
         }
         throw new Error(`Failed to fetch URL: ${response.statusText}`);
       }
@@ -336,23 +407,38 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
         const recipeData = mapJsonLdToRecipeData(jsonLdRecipe);
 
         if (hasRealInstructions(recipeData)) {
-          const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData, {
-            sourceUrl: input.url,
-            sourceName,
-          }));
+          const recipe = await storage.createRecipe(
+            buildRecipeFromExtracted(recipeData, {
+              sourceUrl: input.url,
+              sourceName,
+            }),
+          );
           console.log(`Successfully imported via JSON-LD: ${recipe.title}`);
           return res.status(200).json(recipe);
         }
-        console.log('JSON-LD found but instructions were insufficient, falling back to AI extraction');
+        console.log(
+          "JSON-LD found but instructions were insufficient, falling back to AI extraction",
+        );
       }
 
       // ── Fallback: extract via cheerio + AI ─────────────────────────
-      const pageTitle = $('title').text().split('|')[0].trim() || $('h1').first().text().trim() || "Imported Recipe";
+      const pageTitle =
+        $("title").text().split("|")[0].trim() ||
+        $("h1").first().text().trim() ||
+        "Imported Recipe";
 
-      $('script, style, header, footer, nav, noscript, .ads, .sidebar, .comments, iframe').remove();
-      const recipeContainer = $('.wprm-recipe-container, .recipe-content, .recipe, article').first();
-      const contentText = recipeContainer.length > 0 ? recipeContainer.text() : $('body').text();
-      const cleanedContent = contentText.replace(/\s\s+/g, ' ').trim().slice(0, 12000);
+      $(
+        "script, style, header, footer, nav, noscript, .ads, .sidebar, .comments, iframe",
+      ).remove();
+      const recipeContainer = $(
+        ".wprm-recipe-container, .recipe-content, .recipe, article",
+      ).first();
+      const contentText =
+        recipeContainer.length > 0 ? recipeContainer.text() : $("body").text();
+      const cleanedContent = contentText
+        .replace(/\s\s+/g, " ")
+        .trim()
+        .slice(0, 12000);
 
       let recipeData: any = null;
       try {
@@ -365,28 +451,35 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
         return res.status(422).json({ message: NO_INSTRUCTIONS_ERROR });
       }
 
-      const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData || {}, {
-        sourceUrl: input.url,
-        sourceName,
-      }));
+      const recipe = await storage.createRecipe(
+        buildRecipeFromExtracted(recipeData || {}, {
+          sourceUrl: input.url,
+          sourceName,
+        }),
+      );
 
       console.log(`Successfully imported: ${recipe.title}`);
       res.status(200).json(recipe);
     } catch (err) {
       console.error("Import error details:", err);
-      res.status(500).json({ message: "Failed to import recipe. The site might be blocking access or content is too complex." });
+      res.status(500).json({
+        message:
+          "Failed to import recipe. The site might be blocking access or content is too complex.",
+      });
     }
   });
 
   // Import recipe from pasted text (TikTok captions, recipe text, etc.)
-  app.post('/api/recipes/import-text', async (req, res) => {
+  app.post("/api/recipes/import-text", async (req, res) => {
     try {
       const { text } = z.object({ text: z.string().min(10) }).parse(req.body);
       const recipeData = await extractRecipeFromText(text);
       if (!hasRealInstructions(recipeData)) {
         return res.status(422).json({ message: NO_INSTRUCTIONS_ERROR });
       }
-      const recipe = await storage.createRecipe(buildRecipeFromExtracted(recipeData));
+      const recipe = await storage.createRecipe(
+        buildRecipeFromExtracted(recipeData),
+      );
       console.log(`Imported from text: ${recipe.title}`);
       res.status(200).json(recipe);
     } catch (err) {
@@ -399,34 +492,54 @@ ${title ? `If no recipe name is explicitly stated, use: "${title}"` : `If no rec
   app.post(api.recipes.discover.path, async (req, res) => {
     try {
       const approvedRecipes = await storage.getRecipes(true);
-      
-      const cuisines = [...new Set(approvedRecipes.map(r => r.cuisine).filter(Boolean))];
-      const proteins = [...new Set(approvedRecipes.map(r => r.proteinType).filter(Boolean))];
-      const titles = approvedRecipes.map(r => r.title);
 
-      const keyIngredients = [...new Set(
-        approvedRecipes
-          .flatMap(r => {
+      const cuisines = [
+        ...new Set(approvedRecipes.map((r) => r.cuisine).filter(Boolean)),
+      ];
+      const proteins = [
+        ...new Set(approvedRecipes.map((r) => r.proteinType).filter(Boolean)),
+      ];
+      const titles = approvedRecipes.map((r) => r.title);
+
+      const keyIngredients = [
+        ...new Set(
+          approvedRecipes.flatMap((r) => {
             const ingredients = r.ingredients as any[];
-            return (ingredients || []).map((i: any) => {
-              const raw = typeof i === 'string' ? i : (i.ingredient_name_normalized || i.ingredient_name_raw || '');
-              return raw.replace(/^\d[\d\/\s]*(?:cup|tbsp|tsp|oz|lb|g|ml|clove|bunch|can|piece|slice|pinch|dash)s?\b\s*/i, '').replace(/,.*$/, '').trim().toLowerCase();
-            }).filter((name: string) => name.length > 2);
-          })
-      )].slice(0, 25);
+            return (ingredients || [])
+              .map((i: any) => {
+                const raw =
+                  typeof i === "string"
+                    ? i
+                    : i.ingredient_name_normalized ||
+                      i.ingredient_name_raw ||
+                      "";
+                return raw
+                  .replace(
+                    /^\d[\d\/\s]*(?:cup|tbsp|tsp|oz|lb|g|ml|clove|bunch|can|piece|slice|pinch|dash)s?\b\s*/i,
+                    "",
+                  )
+                  .replace(/,.*$/, "")
+                  .trim()
+                  .toLowerCase();
+              })
+              .filter((name: string) => name.length > 2);
+          }),
+        ),
+      ].slice(0, 25);
 
-      const sampleIngredientContext = keyIngredients.length > 0
-        ? `Key ingredients they cook with: ${keyIngredients.join(', ')}`
-        : '';
+      const sampleIngredientContext =
+        keyIngredients.length > 0
+          ? `Key ingredients they cook with: ${keyIngredients.join(", ")}`
+          : "";
 
-      const styleClues = titles.slice(0, 15).join(', ');
-      
+      const styleClues = titles.slice(0, 15).join(", ");
+
       const prompt = `Based on this home cook's recipe collection, suggest 3 NEW recipes they'd genuinely crave making on a weeknight.
 
 USER'S COOKING PROFILE:
-Existing recipes: ${styleClues || 'None yet - suggest exciting weeknight dinners'}
-Cuisines they enjoy: ${cuisines.join(', ') || 'variety'}
-Proteins they use: ${proteins.join(', ') || 'chicken, beef, pork, fish, tofu'}
+Existing recipes: ${styleClues || "None yet - suggest exciting weeknight dinners"}
+Cuisines they enjoy: ${cuisines.join(", ") || "variety"}
+Proteins they use: ${proteins.join(", ") || "chicken, beef, pork, fish, tofu"}
 ${sampleIngredientContext}
 
 REQUIREMENTS — every suggestion MUST satisfy ALL of these:
@@ -448,16 +561,20 @@ Return ONLY a JSON object with a "suggestions" array of 3 recipes. Each recipe m
 title, description (1-2 sentences emphasizing what makes it delicious), mealType ("lunch", "dinner", or "both"), cuisine, proteinType, prepTimeMinutes, cookTimeMinutes, 
 ingredients (array of strings like "2 cloves garlic, minced"), instructions (step-by-step string), 
 discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentence)`;
-      
+
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "You are a world-class chef who specializes in making healthy food taste absolutely amazing. You believe nutritious cooking should be vibrant, bold, and crave-worthy — never bland or punishing. You draw on global cuisines and restaurant techniques adapted for the home kitchen. You always keep weeknight reality in mind: 45 minutes max, grocery-store ingredients, minimal cleanup. Always return valid JSON." },
-          { role: "user", content: prompt }
+          {
+            role: "system",
+            content:
+              "You are a world-class chef who specializes in making healthy food taste absolutely amazing. You believe nutritious cooking should be vibrant, bold, and crave-worthy — never bland or punishing. You draw on global cuisines and restaurant techniques adapted for the home kitchen. You always keep weeknight reality in mind: 45 minutes max, grocery-store ingredients, minimal cleanup. Always return valid JSON.",
+          },
+          { role: "user", content: prompt },
         ],
-        response_format: { type: "json_object" }
+        response_format: { type: "json_object" },
       });
-      
+
       const data = JSON.parse(completion.choices[0].message.content || "{}");
       let suggestions = data.suggestions || [data];
 
@@ -478,38 +595,45 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
           s.cookTimeMinutes = cook;
           return s;
         })
-        .filter((s: any) => s.prepTimeMinutes + s.cookTimeMinutes <= MAX_TOTAL_TIME);
-      
+        .filter(
+          (s: any) => s.prepTimeMinutes + s.cookTimeMinutes <= MAX_TOTAL_TIME,
+        );
+
       const oldUnreviewed = await storage.getRecipes(false);
       for (const old of oldUnreviewed) {
         await storage.deleteRecipe(old.id);
       }
 
-      const savedSuggestions = await Promise.all(suggestions.map(async (s: any) => {
-        return storage.createRecipe({
-          title: s.title || "Suggested Recipe",
-          description: s.description || "",
-          sourceType: "web",
-          mealType: s.mealType || "dinner",
-          cuisine: s.cuisine || cuisines[0] || "International",
-          proteinType: s.proteinType || proteins[0] || "Various",
-          prepTimeMinutes: s.prepTimeMinutes || 15,
-          cookTimeMinutes: s.cookTimeMinutes || 30,
-          ingredients: (s.ingredients || []).map((i: string) => ({
-            ingredient_name_raw: i,
-            ingredient_name_normalized: i,
-            quantity: null,
-            unit: null,
-            optional_boolean: false,
-            preparation_note: null
-          })),
-          instructions: s.instructions || "",
-          isApproved: false,
-          discoveryScore: Math.floor(Math.random() * 15) + 85,
-          discoveryReason: (s.discoveryReason || `Matches your taste for ${s.cuisine || 'flavorful cooking'}`) + (s.timeCapped ? ' (time adjusted to fit 45-min limit)' : '')
-        });
-      }));
-      
+      const savedSuggestions = await Promise.all(
+        suggestions.map(async (s: any) => {
+          return storage.createRecipe({
+            title: s.title || "Suggested Recipe",
+            description: s.description || "",
+            sourceType: "web",
+            mealType: s.mealType || "dinner",
+            cuisine: s.cuisine || cuisines[0] || "International",
+            proteinType: s.proteinType || proteins[0] || "Various",
+            prepTimeMinutes: s.prepTimeMinutes || 15,
+            cookTimeMinutes: s.cookTimeMinutes || 30,
+            ingredients: (s.ingredients || []).map((i: string) => ({
+              ingredient_name_raw: i,
+              ingredient_name_normalized: i,
+              quantity: null,
+              unit: null,
+              optional_boolean: false,
+              preparation_note: null,
+            })),
+            instructions: s.instructions || "",
+            isApproved: false,
+            discoveryScore: Math.floor(Math.random() * 15) + 85,
+            discoveryReason:
+              (s.discoveryReason ||
+                `Matches your taste for ${s.cuisine || "flavorful cooking"}`) +
+              (s.timeCapped ? " (time adjusted to fit 45-min limit)" : ""),
+          });
+        }),
+      );
+
       res.status(200).json(savedSuggestions);
     } catch (err) {
       console.error("Discover error:", err);
@@ -543,8 +667,12 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
   app.put(api.pantryStaples.update.path, async (req, res) => {
     try {
       const input = api.pantryStaples.update.input.parse(req.body);
-      const staple = await storage.updatePantryStaple(Number(req.params.id), input);
-      if (!staple) return res.status(404).json({ message: 'Pantry staple not found' });
+      const staple = await storage.updatePantryStaple(
+        Number(req.params.id),
+        input,
+      );
+      if (!staple)
+        return res.status(404).json({ message: "Pantry staple not found" });
       res.json(staple);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -576,7 +704,8 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
   app.get(api.weeklyPlans.get.path, async (req, res) => {
     try {
       const plan = await storage.getWeeklyPlan(Number(req.params.id));
-      if (!plan) return res.status(404).json({ message: 'Weekly plan not found' });
+      if (!plan)
+        return res.status(404).json({ message: "Weekly plan not found" });
       res.json(plan);
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch weekly plan" });
@@ -586,150 +715,185 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
   app.post(api.weeklyPlans.generate.path, async (req, res) => {
     try {
       const input = api.weeklyPlans.generate.input.parse(req.body);
-      
+
       const allRecipes = await storage.getRecipes(true);
       if (allRecipes.length === 0) {
-        return res.status(400).json({ message: "You need to add some recipes first!" });
+        return res
+          .status(400)
+          .json({ message: "You need to add some recipes first!" });
       }
 
       const plan = await storage.createWeeklyPlan({
         startDate: new Date(),
         lunchesCount: input.lunchesCount,
         dinnersCount: input.dinnersCount,
-        servingsPerMeal: input.servingsPerMeal
+        servingsPerMeal: input.servingsPerMeal,
       });
 
       // Categorize recipes by type
       const BAD_TITLES = ["imported recipe", "untitled recipe"];
-      const isBadTitle = (r: any) => BAD_TITLES.includes((r.title || '').toLowerCase().trim());
-      const fullRecipes = allRecipes.filter(r => (!r.recipeType || r.recipeType === 'full') && !isBadTitle(r));
-      const simpleRecipes = allRecipes.filter(r => r.recipeType === 'simple' && !isBadTitle(r));
-      const leftoverRecipe = allRecipes.find(r => r.recipeType === 'leftovers' || r.title === 'Leftovers');
-      const fallbackRecipe = allRecipes.find(r => !isBadTitle(r) && r.recipeType !== 'leftovers') || allRecipes[0];
+      const isBadTitle = (r: any) =>
+        BAD_TITLES.includes((r.title || "").toLowerCase().trim());
+      const fullRecipes = allRecipes.filter(
+        (r) => (!r.recipeType || r.recipeType === "full") && !isBadTitle(r),
+      );
+      const simpleRecipes = allRecipes.filter(
+        (r) => r.recipeType === "simple" && !isBadTitle(r),
+      );
+      const leftoverRecipe = allRecipes.find(
+        (r) => r.recipeType === "leftovers" || r.title === "Leftovers",
+      );
+      const fallbackRecipe =
+        allRecipes.find(
+          (r) => !isBadTitle(r) && r.recipeType !== "leftovers",
+        ) || allRecipes[0];
 
       // ── Helpers: shuffle & anti-repetition ──────────────────────────
-      const shuffle = <T>(arr: T[]): T[] => [...arr].sort(() => Math.random() - 0.5);
+      const shuffle = <T>(arr: T[]): T[] =>
+        [...arr].sort(() => Math.random() - 0.5);
 
       // Load recently-used recipe IDs from the most recent previous plan
       // getWeeklyPlans() returns plans sorted by startDate DESC, so after
       // filtering out the just-created plan, [0] is the most recent prior one.
       const allPlans = await storage.getWeeklyPlans();
-      const prevPlan = allPlans.filter(p => p.id !== plan.id)[0] || null;
+      const prevPlan = allPlans.filter((p) => p.id !== plan.id)[0] || null;
       let recentRecipeIds = new Set<number>();
       if (prevPlan) {
         const prevDetail = await storage.getWeeklyPlan(prevPlan.id);
         if (prevDetail) {
-          recentRecipeIds = new Set(prevDetail.meals.map(m => m.recipeId));
+          recentRecipeIds = new Set(
+            prevDetail.meals
+              .filter((m) => m.recipe.recipeType !== "leftovers")
+              .map((m) => m.recipeId),
+          );
         }
       }
 
       // Sort candidates so recently-used ones go to the back, then shuffle each group
       const deprioritiseRecent = <T extends { id: number }>(arr: T[]): T[] => {
-        const fresh = shuffle(arr.filter(r => !recentRecipeIds.has(r.id)));
-        const recent = shuffle(arr.filter(r => recentRecipeIds.has(r.id)));
+        const fresh = shuffle(arr.filter((r) => !recentRecipeIds.has(r.id)));
+        const recent = shuffle(arr.filter((r) => recentRecipeIds.has(r.id)));
         return [...fresh, ...recent];
       };
 
-      // ── Protein variety: guess protein type from title if not set ──
-      const PROTEIN_KEYWORDS: Record<string, string[]> = {
-        chicken: ['chicken', 'poultry'],
-        fish: ['fish', 'salmon', 'tuna', 'cod', 'shrimp', 'prawn', 'seafood', 'mahi', 'halibut', 'tilapia', 'crab', 'lobster', 'scallop'],
-        beef: ['beef', 'steak', 'burger', 'ground beef', 'meatball', 'brisket'],
-        pork: ['pork', 'bacon', 'ham', 'sausage', 'chorizo'],
-        vegetarian: ['tofu', 'tempeh', 'vegetarian', 'vegan', 'veggie', 'lentil', 'chickpea', 'bean', 'mushroom'],
-      };
+      const totalSlots = input.lunchesCount + input.dinnersCount;
+      const leftoversCount = leftoverRecipe ? Math.floor(totalSlots / 3) : 0;
+      const cookedCount = totalSlots - leftoversCount;
 
-      const guessProtein = (recipe: any): string => {
-        const raw = (recipe.proteinType || '').toLowerCase();
-        // Normalize stored proteinType into canonical buckets
-        if (raw) {
-          for (const [bucket, keywords] of Object.entries(PROTEIN_KEYWORDS)) {
-            if (keywords.some(kw => raw.includes(kw))) return bucket;
-          }
-        }
-        const title = (recipe.title || '').toLowerCase();
-        for (const [type, keywords] of Object.entries(PROTEIN_KEYWORDS)) {
-          if (keywords.some(kw => title.includes(kw))) return type;
-        }
-        return 'other';
-      };
-
-      // ── Build dinner list: max 3 full recipes with protein variety ──
-      const MAX_PROPER_DINNERS = 3;
-      const properDinnerCount = Math.min(MAX_PROPER_DINNERS, input.dinnersCount);
       const eligibleFull = deprioritiseRecent(
-        fullRecipes.filter(r => r.mealType === 'dinner' || r.mealType === 'both')
+        fullRecipes.filter(
+          (r) =>
+            r.mealType === "lunch" ||
+            r.mealType === "dinner" ||
+            r.mealType === "both",
+        ),
       );
 
-      // Group by protein type, pick one per group first for diversity
-      const proteinGroups: Record<string, typeof eligibleFull> = {};
-      eligibleFull.forEach(r => {
-        const pt = guessProtein(r);
-        (proteinGroups[pt] ||= []).push(r);
-      });
-      const groupKeys = shuffle(Object.keys(proteinGroups));
+      const eligibleSimple = deprioritiseRecent(
+        simpleRecipes.filter(
+          (r) =>
+            r.mealType === "lunch" ||
+            r.mealType === "dinner" ||
+            r.mealType === "both",
+        ),
+      );
 
-      const pickedFull: (typeof allRecipes[0])[] = [];
+      const pickedCooked: (typeof allRecipes)[0][] = [];
       const usedIds = new Set<number>();
 
-      // Round 1: one from each protein group (up to properDinnerCount)
-      for (const gk of groupKeys) {
-        if (pickedFull.length >= properDinnerCount) break;
-        const candidate = proteinGroups[gk].find(r => !usedIds.has(r.id));
-        if (candidate) {
-          pickedFull.push(candidate);
-          usedIds.add(candidate.id);
-        }
-      }
-      // Round 2: fill remaining slots from whoever is left (already deprioritised by recency)
       for (const r of eligibleFull) {
-        if (pickedFull.length >= properDinnerCount) break;
+        if (pickedCooked.length >= cookedCount) break;
         if (!usedIds.has(r.id)) {
-          pickedFull.push(r);
+          pickedCooked.push(r);
           usedIds.add(r.id);
         }
       }
 
-      // Fill remaining dinner slots with simple meals (shuffled, deduplicated)
-      const simpleSlotCount = Math.max(0, input.dinnersCount - pickedFull.length);
-      const shuffledSimple = deprioritiseRecent(simpleRecipes).filter(r => !usedIds.has(r.id));
-      const pickedSimple = shuffledSimple.slice(0, simpleSlotCount);
-      pickedSimple.forEach(r => usedIds.add(r.id));
+      for (const r of eligibleSimple) {
+        if (pickedCooked.length >= cookedCount) break;
+        if (!usedIds.has(r.id)) {
+          pickedCooked.push(r);
+          usedIds.add(r.id);
+        }
+      }
 
-      // If not enough simple meals, fall back to more full recipes
-      const extraFull: (typeof allRecipes[0])[] = [];
-      if (simpleSlotCount > pickedSimple.length) {
-        for (const r of eligibleFull) {
-          if (extraFull.length >= simpleSlotCount - pickedSimple.length) break;
-          if (!usedIds.has(r.id)) {
-            extraFull.push(r);
-            usedIds.add(r.id);
+      const cookedFallbacks = deprioritiseRecent(
+        allRecipes.filter(
+          (r) => r.recipeType !== "leftovers" && !isBadTitle(r),
+        ),
+      );
+
+      for (const r of cookedFallbacks) {
+        if (pickedCooked.length >= cookedCount) break;
+        if (!usedIds.has(r.id)) {
+          pickedCooked.push(r);
+          usedIds.add(r.id);
+        }
+      }
+
+      while (pickedCooked.length < cookedCount) {
+        pickedCooked.push(fallbackRecipe);
+      }
+
+      const lunchSlots: ("lunch" | "dinner" | "__filled__")[] = Array(
+        input.lunchesCount,
+      ).fill("lunch");
+      const dinnerSlots: ("lunch" | "dinner" | "__filled__")[] = Array(
+        input.dinnersCount,
+      ).fill("dinner");
+      const slotTypes: ("lunch" | "dinner" | "__filled__")[] = [
+        ...lunchSlots,
+        ...dinnerSlots,
+      ];
+
+      const slotAssignments: {
+        mealType: "lunch" | "dinner";
+        recipeId: number;
+      }[] = [];
+      let leftoversRemaining = leftoversCount;
+
+      if (leftoverRecipe) {
+        // Fill lunch slots with leftovers first
+        for (let i = 0; i < slotTypes.length; i++) {
+          if (slotTypes[i] === "lunch" && leftoversRemaining > 0) {
+            slotAssignments.push({
+              mealType: "lunch",
+              recipeId: leftoverRecipe.id,
+            });
+            leftoversRemaining--;
+            slotTypes[i] = "__filled__";
+          }
+        }
+
+        // Then use dinner slots if leftovers remain
+        for (let i = 0; i < slotTypes.length; i++) {
+          if (slotTypes[i] === "dinner" && leftoversRemaining > 0) {
+            slotAssignments.push({
+              mealType: "dinner",
+              recipeId: leftoverRecipe.id,
+            });
+            leftoversRemaining--;
+            slotTypes[i] = "__filled__";
           }
         }
       }
 
-      const planDinners: (typeof allRecipes[0])[] = [...pickedFull, ...pickedSimple, ...extraFull].slice(0, input.dinnersCount);
-      while (planDinners.length < input.dinnersCount) planDinners.push(fallbackRecipe);
-
-      // Build lunch list: mostly leftovers from dinners; use Leftovers placeholder every other slot
-      const planLunches: (typeof allRecipes[0])[] = [];
-      for (let i = 0; i < input.lunchesCount; i++) {
-        planLunches.push(leftoverRecipe || fallbackRecipe);
+      let cookedIndex = 0;
+      for (let i = 0; i < slotTypes.length; i++) {
+        if (slotTypes[i] === "lunch" || slotTypes[i] === "dinner") {
+          const recipe = pickedCooked[cookedIndex++] || fallbackRecipe;
+          slotAssignments.push({
+            mealType: slotTypes[i],
+            recipeId: recipe.id,
+          });
+        }
       }
 
-      for (const recipe of planLunches) {
+      for (const slot of slotAssignments) {
         await storage.createWeeklyPlanMeal({
           weeklyPlanId: plan.id,
-          recipeId: recipe.id,
-          mealType: 'lunch'
-        });
-      }
-
-      for (const recipe of planDinners) {
-        await storage.createWeeklyPlanMeal({
-          weeklyPlanId: plan.id,
-          recipeId: recipe.id,
-          mealType: 'dinner'
+          recipeId: slot.recipeId,
+          mealType: slot.mealType,
         });
       }
 
@@ -754,40 +918,45 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
   app.post(api.weeklyPlans.regenerateMeal.path, async (req, res) => {
     try {
       const mealId = Number(req.params.id);
-      
-      const planWithMeals = await storage.getWeeklyPlanByMealId(mealId);
-      if (!planWithMeals) return res.status(404).json({ message: "Meal or Plan not found" });
 
-      const meal = planWithMeals.meals.find(m => m.id === mealId);
+      const planWithMeals = await storage.getWeeklyPlanByMealId(mealId);
+      if (!planWithMeals)
+        return res.status(404).json({ message: "Meal or Plan not found" });
+
+      const meal = planWithMeals.meals.find((m) => m.id === mealId);
       if (!meal) return res.status(404).json({ message: "Meal not found" });
 
       const allRecipes = await storage.getRecipes(true);
-      const usedRecipeIds = planWithMeals.meals.map(m => m.recipeId);
-      
+      const usedRecipeIds = planWithMeals.meals.map((m) => m.recipeId);
+
       const BAD_SWAP_TITLES = ["imported recipe", "untitled recipe"];
-      const suitableRecipes = allRecipes.filter(r => 
-        (r.mealType === meal.mealType || r.mealType === 'both') && 
-        !usedRecipeIds.includes(r.id) &&
-        r.title !== "Leftovers" &&
-        !BAD_SWAP_TITLES.includes((r.title || '').toLowerCase().trim())
-      );
-      
-      const fallbackRecipes = allRecipes.filter(r => 
-        (r.mealType === meal.mealType || r.mealType === 'both') &&
-        r.title !== "Leftovers" &&
-        !BAD_SWAP_TITLES.includes((r.title || '').toLowerCase().trim())
+      const suitableRecipes = allRecipes.filter(
+        (r) =>
+          (r.mealType === meal.mealType || r.mealType === "both") &&
+          !usedRecipeIds.includes(r.id) &&
+          r.title !== "Leftovers" &&
+          !BAD_SWAP_TITLES.includes((r.title || "").toLowerCase().trim()),
       );
 
-      const candidates = suitableRecipes.length > 0 ? suitableRecipes : fallbackRecipes;
-      
+      const fallbackRecipes = allRecipes.filter(
+        (r) =>
+          (r.mealType === meal.mealType || r.mealType === "both") &&
+          r.title !== "Leftovers" &&
+          !BAD_SWAP_TITLES.includes((r.title || "").toLowerCase().trim()),
+      );
+
+      const candidates =
+        suitableRecipes.length > 0 ? suitableRecipes : fallbackRecipes;
+
       if (candidates.length > 0) {
-        const newRecipe = candidates[Math.floor(Math.random() * candidates.length)];
+        const newRecipe =
+          candidates[Math.floor(Math.random() * candidates.length)];
         const updated = await storage.updateWeeklyPlanMeal(mealId, {
-          recipeId: newRecipe.id
+          recipeId: newRecipe.id,
         });
         return res.json(updated);
       }
-      
+
       res.json(meal);
     } catch (err) {
       console.error("Swap error:", err);
@@ -795,87 +964,82 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
     }
   });
 
-  // Generate Shopping List
   app.get(api.weeklyPlans.shoppingList.path, async (req, res) => {
     try {
       const plan = await storage.getWeeklyPlan(Number(req.params.id));
       if (!plan) return res.status(404).json({ message: 'Weekly plan not found' });
 
       const staples = await storage.getPantryStaples();
-      // Fuzzy matching: a staple keyword matches if the ingredient name contains it or vice versa
-      const stapleKeywords = staples.map(s => s.ingredientNameNormalized.toLowerCase());
+      const stapleKeywords = staples.map(s => s.ingredientNameNormalized.toLowerCase().trim());
+
       const isStapleItem = (name: string): boolean => {
-        const lower = name.toLowerCase();
-        return stapleKeywords.some(k => lower.includes(k) || k.includes(lower.split(' ')[0]));
+        const lower = name.toLowerCase().trim();
+        return stapleKeywords.some(k => lower.includes(k) || k.includes(lower));
       };
 
-      const list: Record<string, { item: string, raw: string, isStaple: boolean }[]> = {
-        "Produce": [],
-        "Meat & Seafood": [],
-        "Dairy": [],
-        "Pantry": [],
-        "Other": []
-      };
+      const grouped = new Map<string, {
+        item: string;
+        quantity: number | null;
+        unit: string | null;
+        raws: string[];
+      }>();
 
-      const seenItems = new Set<string>();
-
-      // Collect ALL ingredients from meals (deduplicate)
-      plan.meals.forEach(meal => {
+      for (const meal of plan.meals) {
         const recipe = meal.recipe;
-        if (!recipe || !Array.isArray(recipe.ingredients)) return;
-        // Skip Leftovers recipe placeholder
-        if (recipe.title === 'Leftovers') return;
+        if (!recipe || !Array.isArray(recipe.ingredients)) continue;
 
-        recipe.ingredients.forEach((ing: any) => {
-          const name = (ing.ingredient_name_normalized || ing.ingredient_name_raw || "").trim();
-          if (!name) return;
-          const key = name.toLowerCase();
-          if (seenItems.has(key)) return;
-          seenItems.add(key);
+        // Skip leftovers entirely
+        if (recipe.recipeType === 'leftovers' || recipe.title === 'Leftovers') continue;
 
-          const lowerName = key;
-          let category = "Other";
-          if (lowerName.match(/apple|banana|onion|garlic|tomato|lettuce|carrot|spinach|potato|pepper|lemon|lime|mushroom|zucchini|cucumber|celery|corn|cabbage|scallion|ginger|herb|basil|cilantro|parsley/)) {
-            category = "Produce";
-          } else if (lowerName.match(/chicken|beef|pork|fish|salmon|shrimp|bacon|lamb|turkey|tuna|anchovy|sausage|steak|ground|meat/)) {
-            category = "Meat & Seafood";
-          } else if (lowerName.match(/milk|cheese|butter|cream|yogurt|egg|mozzarella|parmesan|cheddar|feta/)) {
-            category = "Dairy";
-          } else if (lowerName.match(/flour|sugar|salt|oil|rice|pasta|bean|sauce|spice|can|stock|broth|vinegar|mustard|honey|noodle|bread|crumb|baking|cumin|paprika|chili|cinnamon|turmeric|curry|coriander|soy|miso|tahini/)) {
-            category = "Pantry";
+        for (const ing of recipe.ingredients as any[]) {
+          const normalized = (ing.ingredient_name_normalized || ing.ingredient_name_raw || "").trim();
+          const raw = (ing.ingredient_name_raw || normalized || "").trim();
+          const quantity = typeof ing.quantity === "number" ? ing.quantity : null;
+          const unit = ing.unit ? String(ing.unit).trim() : null;
+
+          if (!normalized) continue;
+          if (isStapleItem(normalized)) continue;
+
+          const key = `${normalized.toLowerCase()}::${(unit || '').toLowerCase()}`;
+
+          if (!grouped.has(key)) {
+            grouped.set(key, {
+              item: normalized,
+              quantity,
+              unit,
+              raws: raw ? [raw] : []
+            });
+          } else {
+            const existing = grouped.get(key)!;
+
+            if (existing.quantity !== null && quantity !== null) {
+              existing.quantity += quantity;
+            } else if (existing.quantity === null && quantity !== null && existing.raws.length === 0) {
+              existing.quantity = quantity;
+            }
+
+            if (raw && !existing.raws.includes(raw)) {
+              existing.raws.push(raw);
+            }
           }
+        }
+      }
 
-          list[category].push({
-            item: name,
-            raw: ing.ingredient_name_raw || name,
-            isStaple: isStapleItem(name)
-          });
-        });
+      const aggregatedItems = Array.from(grouped.values())
+        .sort((a, b) => a.item.localeCompare(b.item))
+        .map(item => ({
+          item: item.item,
+          quantity: item.quantity,
+          unit: item.unit,
+          raws: item.raws
+        }));
+
+      res.json({
+        chinese: [],
+        online: aggregatedItems
       });
-
-      // Remove empty categories
-      Object.keys(list).forEach(k => { if (list[k].length === 0) delete list[k]; });
-
-      // Compute ingredient savings: how many ingredient names appear in 2+ different meals
-      const ingredientMealCount: Record<string, number> = {};
-      plan.meals.forEach(meal => {
-        const recipe = meal.recipe;
-        if (!recipe || recipe.title === 'Leftovers' || !Array.isArray(recipe.ingredients)) return;
-        const recipeIngredients = new Set<string>();
-        (recipe.ingredients as any[]).forEach((ing: any) => {
-          const name = (ing.ingredient_name_normalized || ing.ingredient_name_raw || '').toLowerCase().trim();
-          if (name) recipeIngredients.add(name);
-        });
-        recipeIngredients.forEach(name => {
-          ingredientMealCount[name] = (ingredientMealCount[name] || 0) + 1;
-        });
-      });
-      const sharedCount = Object.values(ingredientMealCount).filter(c => c >= 2).length;
-      const totalRaw = Object.values(ingredientMealCount).reduce((sum, c) => sum + c, 0);
-      const savedCount = totalRaw - Object.keys(ingredientMealCount).length;
-
-      res.json({ ...list, _optimization: { sharedCount, savedCount } });
     } catch (err) {
+      console.error("Shopping list error:", err);
       res.status(500).json({ message: "Failed to generate shopping list" });
     }
   });
@@ -883,8 +1047,11 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
   app.put(api.weeklyPlans.updateMeal.path, async (req, res) => {
     try {
       const input = api.weeklyPlans.updateMeal.input.parse(req.body);
-      const meal = await storage.updateWeeklyPlanMeal(Number(req.params.id), input);
-      if (!meal) return res.status(404).json({ message: 'Meal not found' });
+      const meal = await storage.updateWeeklyPlanMeal(
+        Number(req.params.id),
+        input,
+      );
+      if (!meal) return res.status(404).json({ message: "Meal not found" });
       res.json(meal);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -904,7 +1071,7 @@ async function seedDatabase() {
     const existingRecipes = await storage.getRecipes();
 
     // Seed Leftovers placeholder
-    if (!existingRecipes.some(r => r.title === "Leftovers")) {
+    if (!existingRecipes.some((r) => r.title === "Leftovers")) {
       await storage.createRecipe({
         title: "Leftovers",
         description: "Reheat leftovers from last night's dinner.",
@@ -913,13 +1080,13 @@ async function seedDatabase() {
         recipeType: "leftovers",
         ingredients: [],
         instructions: "Reheat and enjoy!",
-        isApproved: true
+        isApproved: true,
       });
     } else {
       // Backfill recipeType for existing Leftovers recipe
-      const lr = existingRecipes.find(r => r.title === "Leftovers");
-      if (lr && (!lr.recipeType || lr.recipeType === 'full')) {
-        await storage.updateRecipe(lr.id, { recipeType: 'leftovers' });
+      const lr = existingRecipes.find((r) => r.title === "Leftovers");
+      if (lr && (!lr.recipeType || lr.recipeType === "full")) {
+        await storage.updateRecipe(lr.id, { recipeType: "leftovers" });
       }
     }
 
@@ -932,11 +1099,33 @@ async function seedDatabase() {
         prepTimeMinutes: 5,
         cookTimeMinutes: 40,
         ingredients: [
-          { ingredient_name_raw: "4 chicken thighs", ingredient_name_normalized: "chicken thighs", quantity: 4, unit: "pcs", optional_boolean: false, preparation_note: null },
-          { ingredient_name_raw: "2 sweet potatoes", ingredient_name_normalized: "sweet potatoes", quantity: 2, unit: "large", optional_boolean: false, preparation_note: "cubed" },
-          { ingredient_name_raw: "1 head broccoli", ingredient_name_normalized: "broccoli", quantity: 1, unit: "head", optional_boolean: false, preparation_note: "florets" }
+          {
+            ingredient_name_raw: "4 chicken thighs",
+            ingredient_name_normalized: "chicken thighs",
+            quantity: 4,
+            unit: "pcs",
+            optional_boolean: false,
+            preparation_note: null,
+          },
+          {
+            ingredient_name_raw: "2 sweet potatoes",
+            ingredient_name_normalized: "sweet potatoes",
+            quantity: 2,
+            unit: "large",
+            optional_boolean: false,
+            preparation_note: "cubed",
+          },
+          {
+            ingredient_name_raw: "1 head broccoli",
+            ingredient_name_normalized: "broccoli",
+            quantity: 1,
+            unit: "head",
+            optional_boolean: false,
+            preparation_note: "florets",
+          },
         ],
-        instructions: "Toss everything in olive oil, salt, and pepper. Roast at 425°F for 35-40 min.",
+        instructions:
+          "Toss everything in olive oil, salt, and pepper. Roast at 425°F for 35-40 min.",
       },
       {
         title: "Salmon + Asparagus + White Rice",
@@ -945,11 +1134,33 @@ async function seedDatabase() {
         prepTimeMinutes: 5,
         cookTimeMinutes: 20,
         ingredients: [
-          { ingredient_name_raw: "2 salmon fillets", ingredient_name_normalized: "salmon", quantity: 2, unit: "fillets", optional_boolean: false, preparation_note: null },
-          { ingredient_name_raw: "1 bunch asparagus", ingredient_name_normalized: "asparagus", quantity: 1, unit: "bunch", optional_boolean: false, preparation_note: "trimmed" },
-          { ingredient_name_raw: "1 cup white rice", ingredient_name_normalized: "white rice", quantity: 1, unit: "cup", optional_boolean: false, preparation_note: null }
+          {
+            ingredient_name_raw: "2 salmon fillets",
+            ingredient_name_normalized: "salmon",
+            quantity: 2,
+            unit: "fillets",
+            optional_boolean: false,
+            preparation_note: null,
+          },
+          {
+            ingredient_name_raw: "1 bunch asparagus",
+            ingredient_name_normalized: "asparagus",
+            quantity: 1,
+            unit: "bunch",
+            optional_boolean: false,
+            preparation_note: "trimmed",
+          },
+          {
+            ingredient_name_raw: "1 cup white rice",
+            ingredient_name_normalized: "white rice",
+            quantity: 1,
+            unit: "cup",
+            optional_boolean: false,
+            preparation_note: null,
+          },
         ],
-        instructions: "Cook rice. Pan-sear salmon 3-4 min per side. Roast asparagus at 400°F for 12 min.",
+        instructions:
+          "Cook rice. Pan-sear salmon 3-4 min per side. Roast asparagus at 400°F for 12 min.",
       },
       {
         title: "Ground Beef + Roasted Potatoes + Green Beans",
@@ -958,16 +1169,38 @@ async function seedDatabase() {
         prepTimeMinutes: 10,
         cookTimeMinutes: 30,
         ingredients: [
-          { ingredient_name_raw: "1 lb ground beef", ingredient_name_normalized: "ground beef", quantity: 1, unit: "lb", optional_boolean: false, preparation_note: null },
-          { ingredient_name_raw: "3 Yukon gold potatoes", ingredient_name_normalized: "potatoes", quantity: 3, unit: "medium", optional_boolean: false, preparation_note: "cubed" },
-          { ingredient_name_raw: "2 cups green beans", ingredient_name_normalized: "green beans", quantity: 2, unit: "cups", optional_boolean: false, preparation_note: "trimmed" }
+          {
+            ingredient_name_raw: "1 lb ground beef",
+            ingredient_name_normalized: "ground beef",
+            quantity: 1,
+            unit: "lb",
+            optional_boolean: false,
+            preparation_note: null,
+          },
+          {
+            ingredient_name_raw: "3 Yukon gold potatoes",
+            ingredient_name_normalized: "potatoes",
+            quantity: 3,
+            unit: "medium",
+            optional_boolean: false,
+            preparation_note: "cubed",
+          },
+          {
+            ingredient_name_raw: "2 cups green beans",
+            ingredient_name_normalized: "green beans",
+            quantity: 2,
+            unit: "cups",
+            optional_boolean: false,
+            preparation_note: "trimmed",
+          },
         ],
-        instructions: "Roast potatoes at 425°F for 25 min. Cook beef in pan with garlic, salt, and pepper. Steam green beans.",
+        instructions:
+          "Roast potatoes at 425°F for 25 min. Cook beef in pan with garlic, salt, and pepper. Steam green beans.",
       },
     ];
 
     for (const meal of simpleMeals) {
-      if (!existingRecipes.some(r => r.title === meal.title)) {
+      if (!existingRecipes.some((r) => r.title === meal.title)) {
         await storage.createRecipe({
           ...meal,
           sourceType: "manual",
@@ -975,7 +1208,8 @@ async function seedDatabase() {
           recipeType: "simple",
           defaultServings: 2,
           isApproved: true,
-          totalTimeMinutes: (meal.prepTimeMinutes || 0) + (meal.cookTimeMinutes || 0)
+          totalTimeMinutes:
+            (meal.prepTimeMinutes || 0) + (meal.cookTimeMinutes || 0),
         });
       }
     }
@@ -983,18 +1217,36 @@ async function seedDatabase() {
     // Ensure essential pantry staples always exist
     const existingStaples = await storage.getPantryStaples();
     const essentialStaples = [
-      "salt", "pepper", "black pepper", "olive oil", "vegetable oil",
-      "sugar", "soy sauce", "butter", "garlic", "onion",
-      "flour", "rice", "chicken broth", "honey", "vinegar",
-      "cumin", "paprika", "chili flakes", "eggs", "milk"
+      "salt",
+      "pepper",
+      "black pepper",
+      "olive oil",
+      "vegetable oil",
+      "sugar",
+      "soy sauce",
+      "butter",
+      "garlic",
+      "onion",
+      "flour",
+      "rice",
+      "chicken broth",
+      "honey",
+      "vinegar",
+      "cumin",
+      "paprika",
+      "chili flakes",
+      "eggs",
+      "milk",
     ];
     for (const name of essentialStaples) {
-      if (!existingStaples.find(s => s.ingredientNameNormalized === name)) {
-        await storage.createPantryStaple({
-          ingredientNameNormalized: name,
-          alwaysHave: true,
-          currentlyInStock: true
-        }).catch(() => {}); // Ignore unique constraint errors
+      if (!existingStaples.find((s) => s.ingredientNameNormalized === name)) {
+        await storage
+          .createPantryStaple({
+            ingredientNameNormalized: name,
+            alwaysHave: true,
+            currentlyInStock: true,
+          })
+          .catch(() => {}); // Ignore unique constraint errors
       }
     }
   } catch (e) {
