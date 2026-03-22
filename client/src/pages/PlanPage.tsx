@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useWeeklyPlans, useWeeklyPlan, useGeneratePlan, useRegenerateMeal, useUpdateMeal, useDeleteWeeklyPlan } from "@/hooks/use-weekly-plans";
-import { useDiscoverRecipes, useUpdateRecipe, useDeleteRecipe, useRecipes } from "@/hooks/use-recipes";
+import { useDiscoverRecipes, useUpdateRecipe, useDeleteRecipe, useRecipes, useCreateRecipe } from "@/hooks/use-recipes";
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { format, parseISO } from "date-fns";
@@ -228,7 +228,11 @@ function MealCard({ meal, onPickRecipe }: { meal: any; onPickRecipe: () => void 
 function RecipePickerSheet({ mealId, onClose }: { mealId: number; onClose: () => void }) {
   const { data: recipes, isLoading } = useRecipes({ isApproved: true });
   const updateMealMutation = useUpdateMeal();
+  const createRecipeMutation = useCreateRecipe();
   const [search, setSearch] = useState("");
+  const [mode, setMode] = useState<"pick" | "quickAdd">("pick");
+  const [quickName, setQuickName] = useState("");
+  const [quickIngredients, setQuickIngredients] = useState("");
 
   const leftoversRecipe = (recipes || []).find((r: any) => r.recipeType === 'leftovers');
   const filtered = (recipes || []).filter((r: any) =>
@@ -242,6 +246,44 @@ function RecipePickerSheet({ mealId, onClose }: { mealId: number; onClose: () =>
       { onSuccess: () => onClose() }
     );
   };
+
+  const handleQuickAdd = () => {
+    const name = quickName.trim();
+    if (!name) return;
+    const ingredients = quickIngredients
+      .split("\n")
+      .map(l => l.trim())
+      .filter(Boolean)
+      .map(line => ({
+        ingredient_name_raw: line,
+        ingredient_name_normalized: line.toLowerCase(),
+        quantity: null,
+        unit: null,
+        optional_boolean: false,
+        preparation_note: null,
+      }));
+    createRecipeMutation.mutate(
+      {
+        title: name,
+        recipeType: "simple",
+        mealType: "both",
+        sourceType: "manual",
+        isApproved: true,
+        ingredients,
+        instructions: "",
+      },
+      {
+        onSuccess: (newRecipe: any) => {
+          updateMealMutation.mutate(
+            { id: mealId, updates: { recipeId: newRecipe.id } },
+            { onSuccess: () => onClose() }
+          );
+        },
+      }
+    );
+  };
+
+  const isSaving = createRecipeMutation.isPending || updateMealMutation.isPending;
 
   return (
     <motion.div
@@ -260,82 +302,134 @@ function RecipePickerSheet({ mealId, onClose }: { mealId: number; onClose: () =>
       >
         <div className="p-4 border-b border-border">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold font-display">Choose a Recipe</h2>
+            <div className="flex gap-1 bg-muted rounded-xl p-1">
+              <button
+                onClick={() => setMode("pick")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${mode === "pick" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                Choose recipe
+              </button>
+              <button
+                onClick={() => setMode("quickAdd")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${mode === "quickAdd" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                Quick add
+              </button>
+            </div>
             <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-muted transition-colors" data-testid="picker-close">
               <X className="w-5 h-5 text-muted-foreground" />
             </button>
           </div>
-          {leftoversRecipe && (
-            <button
-              onClick={() => handlePick(leftoversRecipe)}
-              disabled={updateMealMutation.isPending}
-              data-testid="picker-leftovers"
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted/60 hover:bg-muted transition-colors text-left mb-3"
-            >
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-muted text-muted-foreground">
-                <Repeat2 className="w-3.5 h-3.5" />
+
+          {mode === "pick" && (
+            <>
+              {leftoversRecipe && (
+                <button
+                  onClick={() => handlePick(leftoversRecipe)}
+                  disabled={updateMealMutation.isPending}
+                  data-testid="picker-leftovers"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted/60 hover:bg-muted transition-colors text-left mb-3"
+                >
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-muted text-muted-foreground">
+                    <Repeat2 className="w-3.5 h-3.5" />
+                  </div>
+                  <p className="font-medium text-sm text-muted-foreground">Leftovers</p>
+                </button>
+              )}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search recipes..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  data-testid="picker-search"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-muted border-0 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
               </div>
-              <p className="font-medium text-sm text-muted-foreground">Leftovers</p>
-            </button>
+            </>
           )}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search recipes..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              data-testid="picker-search"
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-muted border-0 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
-          </div>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-2">
-          {isLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : filtered.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8 text-sm">No recipes found</p>
-          ) : (
-            <div className="space-y-1">
-              {filtered.map((recipe: any) => {
-                const rt = recipe.recipeType || 'full';
-                const Icon = rt === 'simple' ? Zap : Utensils;
-                return (
-                  <button
-                    key={recipe.id}
-                    onClick={() => handlePick(recipe)}
-                    disabled={updateMealMutation.isPending}
-                    data-testid={`picker-recipe-${recipe.id}`}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted transition-colors text-left"
-                  >
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                      rt === 'simple' ? 'bg-green-500/15 text-green-600' : 'bg-primary/10 text-primary'
-                    }`}>
-                      <Icon className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{recipe.title}</p>
-                      {(recipe.totalTimeMinutes || recipe.prepTimeMinutes || recipe.cookTimeMinutes) && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {recipe.totalTimeMinutes || ((recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0))}m
+        {mode === "pick" ? (
+          <div className="overflow-y-auto flex-1 p-2">
+            {isLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : filtered.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8 text-sm">No recipes found</p>
+            ) : (
+              <div className="space-y-1">
+                {filtered.map((recipe: any) => {
+                  const rt = recipe.recipeType || 'full';
+                  const Icon = rt === 'simple' ? Zap : Utensils;
+                  return (
+                    <button
+                      key={recipe.id}
+                      onClick={() => handlePick(recipe)}
+                      disabled={updateMealMutation.isPending}
+                      data-testid={`picker-recipe-${recipe.id}`}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted transition-colors text-left"
+                    >
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                        rt === 'simple' ? 'bg-green-500/15 text-green-600' : 'bg-primary/10 text-primary'
+                      }`}>
+                        <Icon className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{recipe.title}</p>
+                        {(recipe.totalTimeMinutes || recipe.prepTimeMinutes || recipe.cookTimeMinutes) && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {recipe.totalTimeMinutes || ((recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0))}m
+                          </span>
+                        )}
+                      </div>
+                      {recipe.proteinType && (
+                        <span className="text-xs bg-muted px-2 py-0.5 rounded-full text-muted-foreground capitalize shrink-0">
+                          {recipe.proteinType}
                         </span>
                       )}
-                    </div>
-                    {recipe.proteinType && (
-                      <span className="text-xs bg-muted px-2 py-0.5 rounded-full text-muted-foreground capitalize shrink-0">
-                        {recipe.proteinType}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-muted-foreground">Meal name</label>
+              <input
+                type="text"
+                placeholder="e.g. Steak + roasted veg"
+                value={quickName}
+                onChange={(e) => setQuickName(e.target.value)}
+                autoFocus
+                className="w-full px-3 py-2.5 rounded-xl bg-muted border-0 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
             </div>
-          )}
-        </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-muted-foreground">Ingredients <span className="font-normal">(one per line, no quantities needed)</span></label>
+              <textarea
+                placeholder={"ribeye steak\nsweet potato\nbroccolini"}
+                value={quickIngredients}
+                onChange={(e) => setQuickIngredients(e.target.value)}
+                rows={5}
+                className="w-full px-3 py-2.5 rounded-xl bg-muted border-0 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+              />
+            </div>
+            <button
+              onClick={handleQuickAdd}
+              disabled={isSaving || !quickName.trim()}
+              className="w-full py-3 rounded-2xl font-semibold bg-primary text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {isSaving ? "Saving..." : "Save & assign"}
+            </button>
+          </div>
+        )}
       </motion.div>
     </motion.div>
   );
