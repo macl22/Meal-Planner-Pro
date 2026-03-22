@@ -5,7 +5,6 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import * as cheerio from "cheerio";
 import Anthropic from "@anthropic-ai/sdk";
-import { openai } from "./replit_integrations/audio/client";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 import { db } from "./db";
@@ -562,20 +561,17 @@ title, description (1-2 sentences emphasizing what makes it delicious), mealType
 ingredients (array of strings like "2 cloves garlic, minced"), instructions (step-by-step string), 
 discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentence)`;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a world-class chef who specializes in making healthy food taste absolutely amazing. You believe nutritious cooking should be vibrant, bold, and crave-worthy — never bland or punishing. You draw on global cuisines and restaurant techniques adapted for the home kitchen. You always keep weeknight reality in mind: 45 minutes max, grocery-store ingredients, minimal cleanup. Always return valid JSON.",
-          },
-          { role: "user", content: prompt },
-        ],
-        response_format: { type: "json_object" },
+      const discoverMessage = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 4096,
+        system: "You are a world-class chef who specializes in making healthy food taste absolutely amazing. You believe nutritious cooking should be vibrant, bold, and crave-worthy — never bland or punishing. You draw on global cuisines and restaurant techniques adapted for the home kitchen. You always keep weeknight reality in mind: 45 minutes max, grocery-store ingredients, minimal cleanup. Return ONLY valid JSON with no additional text or markdown.",
+        messages: [{ role: "user", content: prompt }],
       });
+      const discoverContent = discoverMessage.content[0];
+      if (discoverContent.type !== "text") throw new Error("Unexpected response from Claude");
+      const discoverRaw = discoverContent.text.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
 
-      const data = JSON.parse(completion.choices[0].message.content || "{}");
+      const data = JSON.parse(discoverRaw);
       let suggestions = data.suggestions || [data];
 
       const MAX_TOTAL_TIME = 45;
