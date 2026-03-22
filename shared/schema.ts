@@ -126,7 +126,6 @@ export type UpdateWeeklyPlanMealRequest = Partial<InsertWeeklyPlanMeal>;
 export type GenerateMenuRequest = {
   lunchesCount: number;
   dinnersCount: number;
-  servingsPerMeal: number;
 };
 
 export type DiscoverRecipesRequest = {

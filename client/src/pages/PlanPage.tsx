@@ -348,14 +348,13 @@ function GeneratePlanModal({ onClose }: { onClose: () => void }) {
   const deleteMutation = useDeleteRecipe();
   const [lunches, setLunches] = useState(3);
   const [dinners, setDinners] = useState(5);
-  const [servings, setServings] = useState(2);
   const [step, setStep] = useState<"configure" | "discovering" | "suggestions">("configure");
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [approvedIds, setApprovedIds] = useState<Set<number>>(new Set());
   const [dismissedIds, setDismissedIds] = useState<Set<number>>(new Set());
 
   const handleGenerate = () => {
-    generateMutation.mutate({ lunchesCount: lunches, dinnersCount: dinners, servingsPerMeal: servings }, {
+    generateMutation.mutate({ lunchesCount: lunches, dinnersCount: dinners }, {
       onSuccess: () => {
         setStep("discovering");
         discoverMutation.mutate(undefined, {
@@ -419,22 +418,6 @@ function GeneratePlanModal({ onClose }: { onClose: () => void }) {
               />
             </div>
 
-            <div className="space-y-3">
-              <label className="text-sm font-semibold text-muted-foreground flex justify-between">
-                Servings per meal <span>{servings}</span>
-              </label>
-              <div className="flex gap-2">
-                {[1, 2, 3, 4, 5, 6].map(n => (
-                  <button
-                    key={n}
-                    onClick={() => setServings(n)}
-                    className={`flex-1 py-3 rounded-xl font-medium transition-colors ${servings === n ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-secondary'}`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
 
           <div className="flex gap-3 mt-8">

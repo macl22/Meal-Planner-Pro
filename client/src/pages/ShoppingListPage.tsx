@@ -1,140 +1,210 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useShoppingList } from "@/hooks/use-weekly-plans";
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { CheckCircle2, Circle, ChevronLeft, ShoppingBag, Leaf, Sparkles } from "lucide-react";
+import { ChevronLeft, ShoppingBag, ChevronDown, ChevronUp } from "lucide-react";
+
+interface ShoppingItem {
+  ingredientName: string;
+  quantity: number | null;
+  unit: string | null;
+}
+
+type ItemRoute = "got" | "chinese" | "online";
+
+function formatQty(item: ShoppingItem): string {
+  if (item.quantity !== null && item.unit) return `${item.quantity} ${item.unit}`;
+  if (item.quantity !== null) return `${item.quantity}`;
+  if (item.unit) return item.unit;
+  return "";
+}
+
+function unroute(name: string, prev: Record<string, ItemRoute>): Record<string, ItemRoute> {
+  const next = { ...prev };
+  delete next[name];
+  return next;
+}
 
 export default function ShoppingListPage() {
   const params = useParams();
   const planId = parseInt(params.id || "0");
-  const { data: list, isLoading } = useShoppingList(planId);
-  
-  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
+  const { data, isLoading } = useShoppingList(planId);
 
-  // Auto-check staple items once list loads
-  useEffect(() => {
-    if (!list) return;
-    const initial: Record<string, boolean> = {};
-    Object.entries(list).forEach(([category, items]: [string, any]) => {
-      if (category === '_optimization' || !Array.isArray(items)) return;
-      items.forEach((item: any, i: number) => {
-        const key = `${category}-${i}`;
-        if (item.isStaple) initial[key] = true;
-      });
-    });
-    setCheckedItems(initial);
-  }, [list]);
+  const [routes, setRoutes] = useState<Record<string, ItemRoute>>({});
+  const [gotExpanded, setGotExpanded] = useState(false);
 
-  const toggleItem = (key: string) => {
-    setCheckedItems(prev => ({ ...prev, [key]: !prev[key] }));
-  };
+  const route = (name: string, dest: ItemRoute) =>
+    setRoutes(prev => ({ ...prev, [name]: dest }));
 
-  if (isLoading) return <Layout><LoadingState message="Generating shopping list..." /></Layout>;
+  if (isLoading) return <Layout><LoadingState message="Building shopping list..." /></Layout>;
 
-  // Separate the optimization metadata from the ingredient categories
-  const optimization = list?._optimization as { sharedCount: number; savedCount: number } | undefined;
-  const categories = list ? Object.fromEntries(Object.entries(list).filter(([k]) => k !== '_optimization')) : {};
+  const items: ShoppingItem[] = data?.items ?? [];
 
-  if (!list || Object.keys(categories).length === 0) {
+  if (items.length === 0) {
     return (
       <Layout>
         <div className="text-center py-20">
-          <p className="text-muted-foreground text-lg">Shopping list is empty or could not be generated.</p>
+          <p className="text-muted-foreground text-lg">Shopping list is empty.</p>
           <Link href="/" className="text-primary mt-4 inline-block font-semibold">Back to Plan</Link>
         </div>
       </Layout>
     );
   }
 
-  const totalItems = Object.values(categories).reduce((sum: number, items: any) => sum + items.length, 0);
-  const checkedCount = Object.values(checkedItems).filter(Boolean).length;
+  const unrouted = items.filter(i => !routes[i.ingredientName]);
+  const got = items.filter(i => routes[i.ingredientName] === "got");
+  const chinese = items
+    .filter(i => routes[i.ingredientName] === "chinese")
+    .sort((a, b) => a.ingredientName.localeCompare(b.ingredientName));
+  const online = items
+    .filter(i => routes[i.ingredientName] === "online")
+    .sort((a, b) => a.ingredientName.localeCompare(b.ingredientName));
+
+  const routedCount = items.length - unrouted.length;
 
   return (
     <Layout>
-      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto pb-20">
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto pb-20">
+
         <header>
           <Link href="/" className="inline-flex items-center text-muted-foreground hover:text-foreground mb-6 transition-colors font-medium">
             <ChevronLeft className="w-5 h-5 mr-1" /> Back to Plan
           </Link>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
-                <ShoppingBag className="w-6 h-6" />
-              </div>
-              <div>
-                <h1 className="text-4xl font-extrabold tracking-tight font-display">Shopping List</h1>
-                <p className="text-muted-foreground text-sm mt-0.5">{checkedCount} of {totalItems} items checked</p>
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
+              <ShoppingBag className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-4xl font-extrabold tracking-tight font-display">Shopping List</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">{routedCount} of {items.length} sorted</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 mt-4 text-xs text-muted-foreground bg-muted/50 rounded-xl px-3 py-2">
-            <Leaf className="w-3.5 h-3.5 text-green-500 shrink-0" />
-            <span>Items you likely already have are pre-checked. Uncheck anything you need to buy.</span>
-          </div>
-          {optimization && optimization.savedCount > 0 && (
-            <div
-              data-testid="optimization-banner"
-              className="flex items-center gap-2 mt-3 text-xs bg-primary/8 border border-primary/20 rounded-xl px-3 py-2 text-primary"
-            >
-              <Sparkles className="w-3.5 h-3.5 shrink-0" />
-              <span>
-                <strong>{optimization.sharedCount} ingredient{optimization.sharedCount !== 1 ? 's' : ''}</strong> are reused across multiple meals — saving you <strong>{optimization.savedCount} item{optimization.savedCount !== 1 ? 's' : ''}</strong> to buy this week.
-              </span>
-            </div>
-          )}
         </header>
 
-        <div className="space-y-6">
-          {Object.entries(categories).map(([category, items]: [string, any]) => {
-            const sortedItems = [...items].sort((a: any, b: any) => {
-              const aChecked = checkedItems[`${category}-${items.indexOf(a)}`] ? 1 : 0;
-              const bChecked = checkedItems[`${category}-${items.indexOf(b)}`] ? 1 : 0;
-              return aChecked - bChecked;
-            });
+        {/* To sort */}
+        {unrouted.length > 0 ? (
+          <section>
+            <h2 className="text-xs font-semibold tracking-wider uppercase text-muted-foreground mb-3">To sort</h2>
+            <div className="bg-card rounded-3xl border border-border shadow-sm divide-y divide-border/50 overflow-hidden">
+              {unrouted.map(item => (
+                <div key={item.ingredientName} className="flex items-center gap-3 px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium text-base capitalize">{item.ingredientName}</span>
+                    {formatQty(item) && (
+                      <span className="text-muted-foreground text-sm ml-2">{formatQty(item)}</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => route(item.ingredientName, "got")}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-muted text-muted-foreground hover:bg-muted/80 font-medium transition-colors"
+                    >
+                      Got it
+                    </button>
+                    <button
+                      onClick={() => route(item.ingredientName, "chinese")}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60 font-medium transition-colors"
+                    >
+                      Chinese
+                    </button>
+                    <button
+                      onClick={() => route(item.ingredientName, "online")}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 font-medium transition-colors"
+                    >
+                      Online
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : (
+          <p className="text-center text-muted-foreground text-sm py-4">
+            All items sorted — see your lists below.
+          </p>
+        )}
 
-            return (
-              <div key={category} className="bg-card rounded-3xl border border-border shadow-sm overflow-hidden">
-                <div className="bg-muted/50 px-5 py-3 border-b border-border flex items-center justify-between">
-                  <h3 className="font-bold text-sm tracking-wider uppercase text-muted-foreground">{category}</h3>
-                  <span className="text-xs text-muted-foreground">
-                    {items.filter((_: any, i: number) => !checkedItems[`${category}-${i}`]).length} to buy
-                  </span>
-                </div>
-                <div className="divide-y divide-border/50">
-                  {sortedItems.map((item: any) => {
-                    const origIdx = items.indexOf(item);
-                    const key = `${category}-${origIdx}`;
-                    const isChecked = checkedItems[key] ?? false;
-                    
-                    return (
-                      <div 
-                        key={key}
-                        onClick={() => toggleItem(key)}
-                        data-testid={`shopping-item-${key}`}
-                        className={`flex items-center gap-4 p-4 cursor-pointer transition-colors ${
-                          isChecked ? 'bg-muted/20 hover:bg-muted/30' : 'hover:bg-secondary/30'
-                        }`}
-                      >
-                        <div className={`shrink-0 transition-colors ${isChecked ? 'text-green-500' : 'text-muted-foreground/40'}`}>
-                          {isChecked ? <CheckCircle2 className="w-6 h-6" /> : <Circle className="w-6 h-6" />}
-                        </div>
-                        <div className={`flex-1 min-w-0 transition-all ${isChecked ? 'opacity-40 line-through' : ''}`}>
-                          <p className="font-medium text-base capitalize">{item.item || item.raw}</p>
-                          {item.isStaple && !isChecked && (
-                            <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 mt-0.5">
-                              <Leaf className="w-3 h-3" /> Pantry staple
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+        {/* Already have — collapsed */}
+        {got.length > 0 && (
+          <section>
+            <button
+              onClick={() => setGotExpanded(e => !e)}
+              className="w-full flex items-center justify-between text-xs font-semibold tracking-wider uppercase text-muted-foreground mb-3 hover:text-foreground transition-colors"
+            >
+              <span>Already have ({got.length})</span>
+              {gotExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            {gotExpanded && (
+              <div className="bg-card rounded-3xl border border-border shadow-sm divide-y divide-border/50 overflow-hidden opacity-60">
+                {got.map(item => (
+                  <div key={item.ingredientName} className="flex items-center justify-between px-4 py-3">
+                    <span className="font-medium text-base capitalize text-muted-foreground line-through">
+                      {item.ingredientName}
+                    </span>
+                    <button
+                      onClick={() => setRoutes(prev => unroute(item.ingredientName, prev))}
+                      className="text-xs text-muted-foreground hover:text-foreground ml-4 transition-colors"
+                    >
+                      undo
+                    </button>
+                  </div>
+                ))}
               </div>
-            );
-          })}
-        </div>
+            )}
+          </section>
+        )}
+
+        {/* Chinese grocery */}
+        {chinese.length > 0 && (
+          <section>
+            <h2 className="text-xs font-semibold tracking-wider uppercase text-muted-foreground mb-3">Chinese grocery</h2>
+            <div className="bg-card rounded-3xl border border-border shadow-sm divide-y divide-border/50 overflow-hidden">
+              {chinese.map(item => (
+                <div key={item.ingredientName} className="flex items-center justify-between px-4 py-3">
+                  <div>
+                    <span className="font-medium text-base capitalize">{item.ingredientName}</span>
+                    {formatQty(item) && (
+                      <span className="text-muted-foreground text-sm ml-2">{formatQty(item)}</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setRoutes(prev => unroute(item.ingredientName, prev))}
+                    className="text-xs text-muted-foreground hover:text-foreground ml-4 transition-colors"
+                  >
+                    undo
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Online */}
+        {online.length > 0 && (
+          <section>
+            <h2 className="text-xs font-semibold tracking-wider uppercase text-muted-foreground mb-3">Online</h2>
+            <div className="bg-card rounded-3xl border border-border shadow-sm divide-y divide-border/50 overflow-hidden">
+              {online.map(item => (
+                <div key={item.ingredientName} className="flex items-center justify-between px-4 py-3">
+                  <div>
+                    <span className="font-medium text-base capitalize">{item.ingredientName}</span>
+                    {formatQty(item) && (
+                      <span className="text-muted-foreground text-sm ml-2">{formatQty(item)}</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setRoutes(prev => unroute(item.ingredientName, prev))}
+                    className="text-xs text-muted-foreground hover:text-foreground ml-4 transition-colors"
+                  >
+                    undo
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
       </div>
     </Layout>
   );

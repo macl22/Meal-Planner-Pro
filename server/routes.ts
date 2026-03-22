@@ -727,7 +727,7 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
         startDate: new Date(),
         lunchesCount: input.lunchesCount,
         dinnersCount: input.dinnersCount,
-        servingsPerMeal: input.servingsPerMeal,
+        servingsPerMeal: 1, // column kept for DB compatibility; no longer user-configurable
       });
 
       // Categorize recipes by type
@@ -970,19 +970,17 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       if (!plan) return res.status(404).json({ message: 'Weekly plan not found' });
 
       const staples = await storage.getPantryStaples();
-      const stapleKeywords = staples.map(s => s.ingredientNameNormalized.toLowerCase().trim());
+      // Only exclude staples that are currently in stock
+      const stapleKeywords = staples
+        .filter(s => s.currentlyInStock)
+        .map(s => s.ingredientNameNormalized.toLowerCase().trim());
 
       const isStapleItem = (name: string): boolean => {
         const lower = name.toLowerCase().trim();
         return stapleKeywords.some(k => lower.includes(k) || k.includes(lower));
       };
 
-      const grouped = new Map<string, {
-        item: string;
-        quantity: number | null;
-        unit: string | null;
-        raws: string[];
-      }>();
+      const grouped = new Map<string, { ingredientName: string; quantity: number | null; unit: string | null }>();
 
       for (const meal of plan.meals) {
         const recipe = meal.recipe;
@@ -993,7 +991,6 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
 
         for (const ing of recipe.ingredients as any[]) {
           const normalized = (ing.ingredient_name_normalized || ing.ingredient_name_raw || "").trim();
-          const raw = (ing.ingredient_name_raw || normalized || "").trim();
           const quantity = typeof ing.quantity === "number" ? ing.quantity : null;
           const unit = ing.unit ? String(ing.unit).trim() : null;
 
@@ -1003,41 +1000,20 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
           const key = `${normalized.toLowerCase()}::${(unit || '').toLowerCase()}`;
 
           if (!grouped.has(key)) {
-            grouped.set(key, {
-              item: normalized,
-              quantity,
-              unit,
-              raws: raw ? [raw] : []
-            });
+            grouped.set(key, { ingredientName: normalized, quantity, unit });
           } else {
             const existing = grouped.get(key)!;
-
             if (existing.quantity !== null && quantity !== null) {
               existing.quantity += quantity;
-            } else if (existing.quantity === null && quantity !== null && existing.raws.length === 0) {
-              existing.quantity = quantity;
-            }
-
-            if (raw && !existing.raws.includes(raw)) {
-              existing.raws.push(raw);
             }
           }
         }
       }
 
-      const aggregatedItems = Array.from(grouped.values())
-        .sort((a, b) => a.item.localeCompare(b.item))
-        .map(item => ({
-          item: item.item,
-          quantity: item.quantity,
-          unit: item.unit,
-          raws: item.raws
-        }));
+      const items = Array.from(grouped.values())
+        .sort((a, b) => a.ingredientName.localeCompare(b.ingredientName));
 
-      res.json({
-        chinese: [],
-        online: aggregatedItems
-      });
+      res.json({ items });
     } catch (err) {
       console.error("Shopping list error:", err);
       res.status(500).json({ message: "Failed to generate shopping list" });

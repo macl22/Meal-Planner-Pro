@@ -157,7 +157,6 @@ export const api = {
       input: z.object({
         lunchesCount: z.number().min(0),
         dinnersCount: z.number().min(0),
-        servingsPerMeal: z.number().min(1),
       }),
       responses: {
         201: z.any(), // Returning plan + meals + recipes
