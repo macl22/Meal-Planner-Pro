@@ -801,6 +801,20 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
       const pickedCooked: (typeof allRecipes)[0][] = [];
       const usedIds = new Set<number>();
 
+      // Target 1 simple meal per 2 full meals (1/3 of cooked slots), minimum 1 if simples exist
+      const simpleTarget = eligibleSimple.length > 0
+        ? Math.max(1, Math.floor(cookedCount / 3))
+        : 0;
+
+      for (const r of eligibleSimple) {
+        if (pickedCooked.length >= simpleTarget) break;
+        if (!usedIds.has(r.id)) {
+          pickedCooked.push(r);
+          usedIds.add(r.id);
+        }
+      }
+
+      // Fill remaining slots with full recipes
       for (const r of eligibleFull) {
         if (pickedCooked.length >= cookedCount) break;
         if (!usedIds.has(r.id)) {
@@ -809,6 +823,7 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
         }
       }
 
+      // Top up with more simple meals if still not full
       for (const r of eligibleSimple) {
         if (pickedCooked.length >= cookedCount) break;
         if (!usedIds.has(r.id)) {
