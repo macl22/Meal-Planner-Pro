@@ -9,6 +9,7 @@ import PlanPage from "./pages/PlanPage";
 import RecipesPage from "./pages/RecipesPage";
 import PantryPage from "./pages/PantryPage";
 import ShoppingListPage from "./pages/ShoppingListPage";
+import ShoppingListRedirectPage from "./pages/ShoppingListRedirectPage";
 import DiscoveryPage from "./pages/DiscoveryPage";
 
 function Router() {
@@ -17,6 +18,7 @@ function Router() {
       <Route path="/" component={PlanPage} />
       <Route path="/recipes" component={RecipesPage} />
       <Route path="/pantry" component={PantryPage} />
+      <Route path="/shopping-list" component={ShoppingListRedirectPage} />
       <Route path="/shopping-list/:id" component={ShoppingListPage} />
       <Route path="/discover" component={DiscoveryPage} />
       <Route component={NotFound} />

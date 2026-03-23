@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link } from "wouter";
 import { useShoppingList } from "@/hooks/use-weekly-plans";
 import { Layout } from "@/components/Layout";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { ChevronLeft, ShoppingBag, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronLeft, ShoppingBag, ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
 
 interface ShoppingItem {
   ingredientName: string;
@@ -31,8 +31,20 @@ export default function ShoppingListPage() {
   const planId = parseInt(params.id || "0");
   const { data, isLoading } = useShoppingList(planId);
 
-  const [routes, setRoutes] = useState<Record<string, ItemRoute>>({});
+  const [copied, setCopied] = useState(false);
+  const [routes, setRoutes] = useState<Record<string, ItemRoute>>(() => {
+    try {
+      const saved = localStorage.getItem(`shopping-routes-${planId}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
   const [gotExpanded, setGotExpanded] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem(`shopping-routes-${planId}`, JSON.stringify(routes));
+  }, [routes, planId]);
 
   const route = (name: string, dest: ItemRoute) =>
     setRoutes(prev => ({ ...prev, [name]: dest }));
@@ -63,6 +75,35 @@ export default function ShoppingListPage() {
 
   const routedCount = items.length - unrouted.length;
 
+  function buildCopyText(): string {
+    const lines: string[] = [];
+    if (chinese.length > 0) {
+      lines.push("CHINESE GROCERY");
+      for (const item of chinese) {
+        const qty = formatQty(item);
+        lines.push(`- ${qty ? `${qty} ` : ""}${item.ingredientName}`);
+      }
+    }
+    if (online.length > 0) {
+      if (lines.length > 0) lines.push("");
+      lines.push("ONLINE");
+      for (const item of online) {
+        const qty = formatQty(item);
+        lines.push(`- ${qty ? `${qty} ` : ""}${item.ingredientName}`);
+      }
+    }
+    return lines.join("\n");
+  }
+
+  function handleCopy() {
+    const text = buildCopyText();
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
   return (
     <Layout>
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto pb-20">
@@ -71,14 +112,25 @@ export default function ShoppingListPage() {
           <Link href="/" className="inline-flex items-center text-muted-foreground hover:text-foreground mb-6 transition-colors font-medium">
             <ChevronLeft className="w-5 h-5 mr-1" /> Back to Plan
           </Link>
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
-              <ShoppingBag className="w-6 h-6" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
+                <ShoppingBag className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-4xl font-extrabold tracking-tight font-display">Shopping List</h1>
+                <p className="text-muted-foreground text-sm mt-0.5">{routedCount} of {items.length} sorted</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-4xl font-extrabold tracking-tight font-display">Shopping List</h1>
-              <p className="text-muted-foreground text-sm mt-0.5">{routedCount} of {items.length} sorted</p>
-            </div>
+            {(chinese.length > 0 || online.length > 0) && (
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-muted hover:bg-muted/80 text-sm font-medium transition-colors shrink-0"
+              >
+                {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            )}
           </div>
         </header>
 

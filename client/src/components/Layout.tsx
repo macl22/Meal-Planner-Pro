@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Utensils, BookOpen, ShoppingBag, Box, Compass } from "lucide-react";
+import { Utensils, BookOpen, ShoppingCart, ShoppingBag, Box, Compass } from "lucide-react";
 import { motion } from "framer-motion";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -16,6 +16,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <DesktopNavItem href="/" icon={<Utensils />} label="Weekly Plan" />
           <DesktopNavItem href="/recipes" icon={<BookOpen />} label="Recipes" />
           <DesktopNavItem href="/pantry" icon={<Box />} label="Pantry" />
+          <DesktopNavItem href="/shopping-list" icon={<ShoppingCart />} label="Shopping List" />
           <DesktopNavItem href="/discover" icon={<Compass />} label="Discover" />
         </nav>
       </aside>
@@ -32,6 +33,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <MobileNavItem href="/" icon={<Utensils />} label="Plan" />
         <MobileNavItem href="/recipes" icon={<BookOpen />} label="Recipes" />
         <MobileNavItem href="/pantry" icon={<Box />} label="Pantry" />
+        <MobileNavItem href="/shopping-list" icon={<ShoppingCart />} label="Shopping" />
         <MobileNavItem href="/discover" icon={<Compass />} label="Discover" />
       </nav>
     </div>

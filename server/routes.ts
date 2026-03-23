@@ -988,7 +988,7 @@ discoveryReason (why this fits the user's taste AND why it's exciting, 1 sentenc
 
       const isStapleItem = (name: string): boolean => {
         const lower = name.toLowerCase().trim();
-        return stapleKeywords.some(k => lower.includes(k) || k.includes(lower));
+        return stapleKeywords.some(k => lower.includes(k));
       };
 
       const grouped = new Map<string, { ingredientName: string; quantity: number | null; unit: string | null }>();
